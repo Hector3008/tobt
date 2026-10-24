@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api.js";
 import Plato from "./Plato.jsx";
 import Cuenta from "./Cuenta.jsx";
+import Promociones from "./Promociones.jsx";
 import { aplicarPaleta, esloganDe, logoSeguro } from "./marca.js";
 import { filtrarCarta, formatoPrecio, hashPlato, rutaDesdeHash, slugDesdeUbicacion, totalItems } from "./logica.js";
 
@@ -11,6 +12,7 @@ export default function Catalogo() {
   const slug = useMemo(() => slugDesdeUbicacion(window.location.pathname, window.location.search), []);
   const [carta, setCarta] = useState(null);
   const [cliente, setCliente] = useState(null);
+  const [promos, setPromos] = useState(null); // promociones vigentes (5.43); si no cargan, la carta se ve igual
   const [errorCarta, setErrorCarta] = useState(null);
   const [texto, setTexto] = useState("");
   const [categoria, setCategoria] = useState(null);
@@ -44,6 +46,7 @@ export default function Catalogo() {
     let vigente = true;
     api.carta(slug).then((d) => vigente && setCarta(d), (e) => vigente && setErrorCarta(e.message));
     api.cliente(slug).then((d) => vigente && setCliente(d), () => {});
+    api.promociones(slug).then((d) => vigente && setPromos(d), () => {});
     return () => {
       vigente = false;
     };
@@ -87,6 +90,8 @@ export default function Catalogo() {
       </header>
 
       <Cuenta slug={slug} estado={cliente} alCambiar={setCliente} moneda={empresa.moneda} />
+
+      <Promociones datos={promos} moneda={empresa.moneda} />
 
       {totalItems(categorias) === 0 ? (
         <p className="rs-vacio">Esta carta todavía no tiene platos.</p>

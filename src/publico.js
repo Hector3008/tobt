@@ -107,11 +107,44 @@ export function crearPublico(core) {
     };
   }
 
+  /**
+   * Promociones vigentes para mostrar en la carta (5.43). Solo la regla (el front la escribe en palabras) y, de cada ítem
+   * al que se refiere, su nombre. Una promoción cuyo ítem ya no existe o está retirado no se muestra: el cliente no
+   * podría pedirlo. Con un núcleo sin promociones, lista vacía.
+   */
+  async function promociones({ slug, ahora = new Date() }) {
+    const e = await empresaPorSlug(slug);
+    const empresa = { nombre: e.nombre, moneda: e.moneda ?? "PEN" };
+    if (typeof core.promociones?.vigentes !== "function") return { empresa, hoy: null, promociones: [] };
+    const r = await core.promociones.vigentes({ empresaId: e._id, ahora });
+    const nombres = new Map(); // código (en minúsculas) → nombre del ítem, o null si ya no se puede pedir
+    const codigos = new Set(
+      r.promociones.flatMap((p) => [p.objetivo?.itemCodigo, p.disparador?.itemCodigo]).filter(Boolean).map((c) => c.toLowerCase()),
+    );
+    for (const c of [...codigos].slice(0, 100)) {
+      try {
+        const i = await core.catalogo.obtener({ empresaId: e._id, codigo: c });
+        nombres.set(c, i.activo === false ? null : i.nombre);
+      } catch (err) {
+        if (!(err instanceof ErrorCatalogo)) throw err;
+        nombres.set(c, null);
+      }
+    }
+    const selector = (s) => (s ? { itemCodigo: s.itemCodigo, categoria: s.categoria, nombre: s.itemCodigo ? nombres.get(s.itemCodigo.toLowerCase()) ?? null : null } : null);
+    const visibles = r.promociones
+      .filter((p) => [p.objetivo, p.disparador].every((s) => !s?.itemCodigo || nombres.get(s.itemCodigo.toLowerCase())))
+      .map((p) => ({
+        id: p.id, nombre: p.nombre, descripcion: p.descripcion, tipo: p.tipo, objetivo: selector(p.objetivo), disparador: selector(p.disparador),
+        n: p.n, m: p.m, efecto: p.efecto, valor: p.valor, vigencia: p.vigencia, dias: p.dias, horario: p.horario, vigenteAhora: p.vigenteAhora,
+      }));
+    return { empresa, hoy: r.hoy, promociones: visibles };
+  }
+
   /** La empresa de una petición pública, en la forma que piden los manejadores de cuentas del núcleo. */
   async function empresaDe(req) {
     const e = await empresaPorSlug(req.params?.empresa);
     return { id: e._id, slug: e.slug };
   }
 
-  return { carta, plato, empresaPorSlug, empresaDe };
+  return { carta, plato, promociones, empresaPorSlug, empresaDe };
 }

@@ -70,3 +70,10 @@
 .cat-invitar__codigo { display: grid; gap: 2px; }
 .cat-invitar__codigo strong { font-size: 1.75rem; letter-spacing: 0.18em; color: var(--color-principal); font-variant-numeric: tabular-nums; }
 .cat-invitar__aviso { overflow-wrap: anywhere; }
+
+/* Promociones en la carta (5.43) */
+.cat-promos { margin-bottom: 20px; display: grid; gap: 8px; }
+.cat-promo { display: grid; gap: 4px; }
+.cat-promo--fuera { opacity: .72; }
+.cat-promo__estado { font-size: .8125rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--color-borde); white-space: nowrap; }
+.cat-promo__estado--ahora { color: var(--color-principal); border-color: var(--color-principal); }

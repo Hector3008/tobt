@@ -5,6 +5,7 @@ import { ErrorPedido } from "./errores.js";
  *
  *   GET /catalogo/:empresa              la página (HTML) de la carta; `:empresa` es el slug
  *   GET /publico/:empresa/carta         { empresa: { nombre, slug, moneda, marca }, categorias: [{ nombre, items }] }
+ *   GET /publico/:empresa/promociones   { empresa, hoy, promociones: [{ nombre, tipo, …regla, vigenteAhora }] }   (5.43)
  *   GET /publico/:empresa/plato/:codigo  { empresa, plato: { codigo, nombre, categoria, precio, descripcion, imagen }, resenas }
  *
  * Cuenta del cliente final (con sesión propia `cs_<slug>`; los maneja core.cuentasCliente, ver core/docs/cuentas-cliente.md):
@@ -79,6 +80,16 @@ export function montarRutasPublicas(router, publico, htmlCatalogo, limitador = l
     envolver(async (req, res) => {
       res.setHeader("Cache-Control", "public, max-age=30");
       res.status(200).json(await publico.carta({ slug: req.params.empresa }));
+    }),
+  );
+
+  // Promociones vigentes (5.43). Cambian con la hora del día: caché corta.
+  router.get(
+    "/publico/:empresa/promociones",
+    limitador,
+    envolver(async (req, res) => {
+      res.setHeader("Cache-Control", "public, max-age=30");
+      res.status(200).json(await publico.promociones({ slug: req.params.empresa }));
     }),
   );
 

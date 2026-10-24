@@ -191,3 +191,67 @@ export function textoFaltan(faltan) {
 
 /** Porcentaje (0 a 100) de avance de un reto. */
 export const porcentajeReto = (r) => (r?.total > 0 ? Math.round(((r.logrados ?? 0) / r.total) * 100) : 0);
+
+// ---------- promociones en la carta (5.43) ----------
+// El servicio manda la regla (GET .../promociones) y aquí se escribe en palabras. Los nombres de los ítems ya vienen resueltos.
+
+const DIAS_ES = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+const MESES_ES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sept", "oct", "nov", "dic"];
+const mayuscula = (t) => (t ? t[0].toUpperCase() + t.slice(1) : t);
+
+/** «2026-10-22» → «22 oct 2026»; algo que no es fecha se devuelve igual. */
+export function textoFecha(f) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(f ?? ""));
+  return m ? `${Number(m[3])} ${MESES_ES[Number(m[2]) - 1]} ${m[1]}` : String(f ?? "");
+}
+
+/** [4, 5] → «jueves y viernes»; [1..5] → «de lunes a viernes»; todos o ninguno → null. Los días son 0 (domingo) a 6. */
+export function textoDias(dias) {
+  const orden = [1, 2, 3, 4, 5, 6, 0];
+  const set = new Set(Array.isArray(dias) ? dias : []);
+  const lista = orden.filter((d) => set.has(d));
+  if (lista.length === 0 || lista.length === 7) return null;
+  // Tramos de días seguidos (lunes a domingo): de 3 o más se dicen «de X a Y»
+  const tramos = [];
+  for (const d of lista) {
+    const ultimo = tramos[tramos.length - 1];
+    if (ultimo && orden.indexOf(d) === orden.indexOf(ultimo[ultimo.length - 1]) + 1) ultimo.push(d);
+    else tramos.push([d]);
+  }
+  const partes = tramos.flatMap((t) => (t.length >= 3 ? [`de ${DIAS_ES[t[0]]} a ${DIAS_ES[t[t.length - 1]]}`] : t.map((d) => DIAS_ES[d])));
+  return partes.length === 1 ? partes[0] : `${partes.slice(0, -1).join(", ")} y ${partes[partes.length - 1]}`;
+}
+
+/** Cuándo rige: «Jueves y viernes, de 18:00 a 21:00 · hasta el 30 nov 2026». Sin condiciones: «Todos los días». */
+export function textoCuando(p) {
+  const dias = textoDias(p?.dias) ?? "todos los días";
+  const horario = p?.horario?.desde && p?.horario?.hasta ? `, de ${p.horario.desde} a ${p.horario.hasta}` : "";
+  const v = p?.vigencia;
+  const vigencia = v?.desde && v?.hasta ? ` · del ${textoFecha(v.desde)} al ${textoFecha(v.hasta)}` : v?.hasta ? ` · hasta el ${textoFecha(v.hasta)}` : v?.desde ? ` · desde el ${textoFecha(v.desde)}` : "";
+  return `${mayuscula(dias)}${horario}${vigencia}`;
+}
+
+const numero = (n) => new Intl.NumberFormat("es", { maximumFractionDigits: 2 }).format(Number(n));
+const queItem = (s) => (s?.itemCodigo ? s.nombre ?? s.itemCodigo : `un producto de ${s?.categoria ?? "la carta"}`);
+const enItem = (s) => (s?.itemCodigo ? s.nombre ?? s.itemCodigo : `productos de ${s?.categoria ?? "la carta"}`);
+const descuento = (efecto, valor, moneda) => (efecto === "porcentaje" ? `${numero(valor)} % de descuento` : `${formatoPrecio(valor, moneda)} de descuento`);
+
+/** La regla en una frase para el cliente. */
+export function textoRegla(p, moneda) {
+  if (p?.tipo === "nxm") return `${p.n}×${p.m} en ${enItem(p.objetivo)}: lleva ${p.n} y paga ${p.m}.`;
+  if (p?.tipo === "directo")
+    return p.efecto === "gratis" ? `${mayuscula(queItem(p.objetivo))} gratis.` : `${mayuscula(descuento(p.efecto, p.valor, moneda))} en ${enItem(p.objetivo)}.`;
+  if (p?.tipo === "combo")
+    return `Llevando ${queItem(p.disparador)}, ${queItem(p.objetivo)} ${p.efecto === "gratis" ? "gratis" : `con ${descuento(p.efecto, p.valor, moneda)}`}.`;
+  return "";
+}
+
+/** «Vigente ahora», «Desde el 1 nov 2026» o «Hoy no rige», y su clave para el estilo. `hoy` es la fecha de la empresa. */
+export function estadoPromocion(p, hoy) {
+  if (p?.vigenteAhora) return { clave: "ahora", texto: "Vigente ahora" };
+  if (p?.vigencia?.desde && hoy && p.vigencia.desde > hoy) return { clave: "pronto", texto: `Desde el ${textoFecha(p.vigencia.desde)}` };
+  return { clave: "fuera", texto: "Hoy no rige" };
+}
+
+/** Las vigentes primero (conservan el orden del servicio dentro de cada grupo). */
+export const ordenarPromociones = (lista) => [...(lista ?? [])].sort((a, b) => Number(b.vigenteAhora === true) - Number(a.vigenteAhora === true));
