@@ -6,6 +6,9 @@
 // del ítem (ya con el vale aplicado) y NO incluye propinas.
 // El mesero de una venta es quien la cobró (decisión de Héctor, 19 de octubre): el usuario del movimiento `→ pagado`.
 // Si ese movimiento lo hizo el sistema (sin usuario), la venta queda «sin atribuir».
+// Promociones (5.43): el importe ya trae las promociones descontadas. Cada ítem cobrado guarda en `payload.doc.promociones`
+// las que se le aplicaron ({ id, nombre, monto, unidades }); de ahí sale cuánto se descontó y por cuál promoción. Lo
+// cobrado antes de 5.42 no las tiene y cuenta como sin promociones.
 // Los días se agrupan en la zona horaria de la empresa (según su país).
 import { ErrorPedido } from "./errores.js";
 import { METODOS_PAGO } from "./recibo.js";
@@ -16,6 +19,7 @@ export const DIAS_POR_DEFECTO = 30;
 export const TOP_PLATOS = 10;
 export const TOP_CLIENTES = 10;
 export const TOP_CATEGORIAS = 8;
+export const TOP_PROMOCIONES = 8;
 
 // País de la empresa (ISO de 2 letras) → zona horaria. Un país con varias zonas usa la de su capital; uno que no
 // está aquí agrupa en UTC (y la respuesta lo dice en `zona`, para no pasar un día por otro sin avisar).
@@ -241,6 +245,20 @@ export function pipelineVentas({ desdeTs, hastaTs, zona: zonaEmpresa }) {
           { $sort: { cantidad: -1, ventas: -1 } },
           { $limit: TOP_PLATOS },
         ],
+        // Una fila por cada promoción aplicada a un ítem cobrado (un ítem sin promociones no entra).
+        promociones: [
+          { $unwind: "$payload.doc.promociones" },
+          {
+            $group: {
+              _id: "$payload.doc.promociones.id",
+              nombre: { $last: "$payload.doc.promociones.nombre" },
+              ahorro: { $sum: { $ifNull: ["$payload.doc.promociones.monto", 0] } },
+              items: { $sum: 1 },
+              unidades: { $sum: { $ifNull: ["$payload.doc.promociones.unidades", 0] } },
+            },
+          },
+          { $sort: { ahorro: -1, _id: 1 } },
+        ],
         horas: [{ $group: { _id: { d: "$dia", h: "$hora" }, ventas: suma, items: { $sum: 1 } } }],
         canales: [{ $group: { _id: "$canal", ventas: suma, items: { $sum: 1 } } }, { $sort: { ventas: -1 } }],
       },
@@ -345,6 +363,23 @@ export function armarReporte({ facet, recibos, usuarios, empresa, zona, consulta
       horas.push({ dia: d, hora: h, ventas: redondear(c?.ventas), items: c?.items ?? 0 });
     }
 
+  // Promociones: el ahorro total es la suma de todas (aunque solo se listen las TOP_PROMOCIONES primeras; el resto va en `otras`).
+  const filasPromos = (f.promociones ?? []).map((p) => ({
+    id: texto(p._id), nombre: p.nombre ?? "Promoción", ahorro: redondear(p.ahorro), items: p.items, unidades: p.unidades,
+  }));
+  const ahorro = redondear(filasPromos.reduce((n, p) => n + p.ahorro, 0));
+  const antes = redondear(ventas + ahorro);
+  const visibles = filasPromos.slice(0, TOP_PROMOCIONES).map((p) => ({ ...p, porcentaje: participacion(p.ahorro, ahorro) }));
+  const resto = filasPromos.slice(TOP_PROMOCIONES);
+  const promociones = {
+    ahorro,
+    ventasAntes: antes, // lo que habría sido sin promociones
+    porcentaje: participacion(ahorro, antes), // del valor a precio completo
+    items: filasPromos.reduce((n, p) => n + p.items, 0),
+    porPromocion: visibles,
+    otras: resto.length ? { cantidad: resto.length, ahorro: redondear(resto.reduce((n, p) => n + p.ahorro, 0)), items: resto.reduce((n, p) => n + p.items, 0) } : null,
+  };
+
   const canales = (f.canales ?? []).map((c) => ({
     canal: c._id ?? null, ventas: redondear(c.ventas), items: c.items, porcentaje: participacion(c.ventas, resumen.ventas),
   }));
@@ -364,7 +399,7 @@ export function armarReporte({ facet, recibos, usuarios, empresa, zona, consulta
       propinas: redondear(filasRecibos.reduce((n, r) => n + (r.propinas ?? 0), 0)),
       recibos: filasRecibos.reduce((n, r) => n + r.recibos, 0),
     },
-    serie, categorias, meseros, clientes, platos, horas, canales, pagos,
+    serie, categorias, meseros, clientes, platos, horas, canales, pagos, promociones,
   };
 }
 

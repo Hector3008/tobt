@@ -1,0 +1,165 @@
+diff --git a/src/reportes.js b/src/reportes.js
+index a8ce554..9bd0f0b 100644
+--- a/src/reportes.js
++++ b/src/reportes.js
+@@ -6,6 +6,9 @@
+ // del ítem (ya con el vale aplicado) y NO incluye propinas.
+ // El mesero de una venta es quien la cobró (decisión de Héctor, 19 de octubre): el usuario del movimiento `→ pagado`.
+ // Si ese movimiento lo hizo el sistema (sin usuario), la venta queda «sin atribuir».
++// Promociones (5.43): el importe ya trae las promociones descontadas. Cada ítem cobrado guarda en `payload.doc.promociones`
++// las que se le aplicaron ({ id, nombre, monto, unidades }); de ahí sale cuánto se descontó y por cuál promoción. Lo
++// cobrado antes de 5.42 no las tiene y cuenta como sin promociones.
+ // Los días se agrupan en la zona horaria de la empresa (según su país).
+ import { ErrorPedido } from "./errores.js";
+ import { METODOS_PAGO } from "./recibo.js";
+@@ -16,6 +19,7 @@ export const DIAS_POR_DEFECTO = 30;
+ export const TOP_PLATOS = 10;
+ export const TOP_CLIENTES = 10;
+ export const TOP_CATEGORIAS = 8;
++export const TOP_PROMOCIONES = 8;
+ 
+ // País de la empresa (ISO de 2 letras) → zona horaria. Un país con varias zonas usa la de su capital; uno que no
+ // está aquí agrupa en UTC (y la respuesta lo dice en `zona`, para no pasar un día por otro sin avisar).
+@@ -241,6 +245,20 @@ export function pipelineVentas({ desdeTs, hastaTs, zona: zonaEmpresa }) {
+           { $sort: { cantidad: -1, ventas: -1 } },
+           { $limit: TOP_PLATOS },
+         ],
++        // Una fila por cada promoción aplicada a un ítem cobrado (un ítem sin promociones no entra).
++        promociones: [
++          { $unwind: "$payload.doc.promociones" },
++          {
++            $group: {
++              _id: "$payload.doc.promociones.id",
++              nombre: { $last: "$payload.doc.promociones.nombre" },
++              ahorro: { $sum: { $ifNull: ["$payload.doc.promociones.monto", 0] } },
++              items: { $sum: 1 },
++              unidades: { $sum: { $ifNull: ["$payload.doc.promociones.unidades", 0] } },
++            },
++          },
++          { $sort: { ahorro: -1, _id: 1 } },
++        ],
+         horas: [{ $group: { _id: { d: "$dia", h: "$hora" }, ventas: suma, items: { $sum: 1 } } }],
+         canales: [{ $group: { _id: "$canal", ventas: suma, items: { $sum: 1 } } }, { $sort: { ventas: -1 } }],
+       },
+@@ -345,6 +363,23 @@ export function armarReporte({ facet, recibos, usuarios, empresa, zona, consulta
+       horas.push({ dia: d, hora: h, ventas: redondear(c?.ventas), items: c?.items ?? 0 });
+     }
+ 
++  // Promociones: el ahorro total es la suma de todas (aunque solo se listen las TOP_PROMOCIONES primeras; el resto va en `otras`).
++  const filasPromos = (f.promociones ?? []).map((p) => ({
++    id: texto(p._id), nombre: p.nombre ?? "Promoción", ahorro: redondear(p.ahorro), items: p.items, unidades: p.unidades,
++  }));
++  const ahorro = redondear(filasPromos.reduce((n, p) => n + p.ahorro, 0));
++  const antes = redondear(ventas + ahorro);
++  const visibles = filasPromos.slice(0, TOP_PROMOCIONES).map((p) => ({ ...p, porcentaje: participacion(p.ahorro, ahorro) }));
++  const resto = filasPromos.slice(TOP_PROMOCIONES);
++  const promociones = {
++    ahorro,
++    ventasAntes: antes, // lo que habría sido sin promociones
++    porcentaje: participacion(ahorro, antes), // del valor a precio completo
++    items: filasPromos.reduce((n, p) => n + p.items, 0),
++    porPromocion: visibles,
++    otras: resto.length ? { cantidad: resto.length, ahorro: redondear(resto.reduce((n, p) => n + p.ahorro, 0)), items: resto.reduce((n, p) => n + p.items, 0) } : null,
++  };
++
+   const canales = (f.canales ?? []).map((c) => ({
+     canal: c._id ?? null, ventas: redondear(c.ventas), items: c.items, porcentaje: participacion(c.ventas, resumen.ventas),
+   }));
+@@ -364,7 +399,7 @@ export function armarReporte({ facet, recibos, usuarios, empresa, zona, consulta
+       propinas: redondear(filasRecibos.reduce((n, r) => n + (r.propinas ?? 0), 0)),
+       recibos: filasRecibos.reduce((n, r) => n + r.recibos, 0),
+     },
+-    serie, categorias, meseros, clientes, platos, horas, canales, pagos,
++    serie, categorias, meseros, clientes, platos, horas, canales, pagos, promociones,
+   };
+ }
+ 
+diff --git a/test/reportes.test.js b/test/reportes.test.js
+index 8c6c65c..21bc364 100644
+--- a/test/reportes.test.js
++++ b/test/reportes.test.js
+@@ -156,13 +156,13 @@ describe("reportes: plegar", () => {
+ 
+ // ---------- el servicio contra la agregación real (mingo) ----------
+ 
+-function item({ code, empresaId = "e1", estado = "pagado", pedido = "PD-0000001", cantidad = 1, subtotal, nombre, codigo, categoria, cliente, pagadoPor = "u1", sistema = false, pagadoTs, origen = "catalogo" }) {
++function item({ code, empresaId = "e1", estado = "pagado", pedido = "PD-0000001", cantidad = 1, subtotal, nombre, codigo, categoria, cliente, pagadoPor = "u1", sistema = false, pagadoTs, origen = "catalogo", promociones }) {
+   const historial = [{ de: null, a: "en_cocina", usuarioId: "u1", ts: new Date("2026-10-01T10:00:00Z") }];
+   if (estado === "pagado") historial.push({ de: "entregado", a: "pagado", usuarioId: sistema ? null : pagadoPor, sistema, ts: new Date(pagadoTs) });
+   if (estado === "anulado") historial.push({ de: "en_cocina", a: "anulado", usuarioId: "u1", ts: new Date("2026-10-20T15:00:00Z") });
+   return {
+     empresaId, tipo: "doc_item", code, estado,
+-    payload: { doc: { pedidoCode: pedido, cantidad, subtotal, moneda: "PEN" } },
++    payload: { doc: { pedidoCode: pedido, cantidad, subtotal, moneda: "PEN", ...(promociones ? { promociones } : {}) } },
+     snapshot: { item: { origen, codigo: codigo ?? null, nombre, categoria: categoria ?? null }, ...(cliente ? { cliente } : {}) },
+     historial,
+   };
+@@ -314,6 +314,68 @@ describe("reportes: ventas (agregación real con mingo)", () => {
+   });
+ });
+ 
++describe("reportes: promociones (5.43)", () => {
++  const T = "2026-10-20T15:00:00Z";
++  const promo = (id, nombre, monto, unidades = 1) => ({ id, nombre, monto, unidades });
++  const docs = () => [
++    // 2×1: dos lattes de 10; uno sale gratis. El ítem pagó 10 en vez de 20 (ahorro 10)
++    item({ code: "DOC_ITEM-1", cantidad: 1, subtotal: 0, nombre: "Latte", codigo: "LATTE", categoria: "Cafés", pagadoTs: T, promociones: [promo("p-2x1", "2×1 en lattes", 10)] }),
++    item({ code: "DOC_ITEM-2", cantidad: 1, subtotal: 10, nombre: "Latte", codigo: "LATTE", categoria: "Cafés", pagadoTs: T }),
++    // un ítem con dos promociones distintas
++    item({ code: "DOC_ITEM-3", cantidad: 1, subtotal: 6, nombre: "Torta", codigo: "TORTA", categoria: "Postres", pagadoTs: T, promociones: [promo("p-2x1", "2×1 en lattes (renombrada)", 2.5), promo("p-torta", "Torta 10 %", 1.5)] }),
++    // sin promociones y de antes de 5.42 (sin el campo)
++    item({ code: "DOC_ITEM-4", subtotal: 4, nombre: "Moka", codigo: "MOKA", categoria: "Cafés", pagadoTs: T }),
++    item({ code: "DOC_ITEM-5", subtotal: 3, nombre: "Té", codigo: "TE", categoria: "Cafés", pagadoTs: T, promociones: [] }),
++    // no cuentan: anulado, en cocina, otra empresa, fuera del rango
++    item({ code: "DOC_ITEM-6", estado: "anulado", subtotal: 0, nombre: "A", codigo: "A", promociones: [promo("p-anulada", "Anulada", 50)] }),
++    item({ code: "DOC_ITEM-7", estado: "en_cocina", subtotal: 0, nombre: "B", codigo: "B", promociones: [promo("p-cocina", "En cocina", 50)] }),
++    item({ code: "DOC_ITEM-8", empresaId: "e2", subtotal: 0, nombre: "C", codigo: "C", pagadoTs: T, promociones: [promo("p-otra", "Otra empresa", 50)] }),
++    item({ code: "DOC_ITEM-9", subtotal: 0, nombre: "D", codigo: "D", pagadoTs: "2026-09-01T15:00:00Z", promociones: [promo("p-vieja", "Septiembre", 50)] }),
++    pedidoDoc("PD-0000001", "salon"),
++  ];
++
++  it("suma lo descontado por promoción, con el nombre más reciente y ordenado por ahorro", async () => {
++    const { promociones: p } = await servicio(docs()).svc.ventas(consulta);
++    assert.deepEqual(p.porPromocion.map((x) => [x.id, x.ahorro, x.items, x.unidades]), [["p-2x1", 12.5, 2, 2], ["p-torta", 1.5, 1, 1]]);
++    assert.equal(p.porPromocion[0].nombre, "2×1 en lattes (renombrada)"); // el nombre guardado en el ítem cobrado más reciente
++    assert.deepEqual(p.porPromocion.map((x) => x.porcentaje), [89.3, 10.7]);
++  });
++
++  it("el ahorro total, lo que habría sido sin promociones y su porcentaje", async () => {
++    const r = await servicio(docs()).svc.ventas(consulta);
++    assert.equal(r.resumen.ventas, 23); // 0 + 10 + 6 + 4 + 3: lo cobrado ya trae los descuentos
++    assert.equal(r.promociones.ahorro, 14);
++    assert.equal(r.promociones.ventasAntes, 37);
++    assert.equal(r.promociones.porcentaje, 37.8);
++    assert.equal(r.promociones.items, 3); // entradas de promoción (el ítem 3 tiene dos)
++    assert.equal(r.promociones.otras, null);
++  });
++
++  it("sin promociones: ceros, sin dividir por cero", async () => {
++    for (const d of [[], datos()]) {
++      const { promociones: p, resumen } = await servicio(d).svc.ventas(consulta);
++      assert.deepEqual([p.ahorro, p.porcentaje, p.items, p.porPromocion.length, p.otras], [0, 0, 0, 0, null]);
++      assert.equal(p.ventasAntes, resumen.ventas);
++    }
++  });
++
++  it("más de 8 promociones: se listan las 8 con más ahorro y el resto va en «otras», sin perder el total", async () => {
++    const muchas = Array.from({ length: 11 }, (_, i) =>
++      item({ code: `DOC_ITEM-${i + 1}`, subtotal: 5, nombre: "X", codigo: "X", pagadoTs: T, promociones: [promo(`p${i}`, `Promo ${i}`, 11 - i)] }));
++    const { promociones: p } = await servicio(muchas).svc.ventas(consulta);
++    assert.equal(p.porPromocion.length, 8);
++    assert.deepEqual(p.otras, { cantidad: 3, ahorro: 6, items: 3 }); // 3 + 2 + 1
++    assert.equal(p.ahorro, 66);
++    assert.equal(p.porPromocion.reduce((n, x) => n + x.ahorro, 0) + p.otras.ahorro, p.ahorro);
++  });
++
++  it("no mezcla empresas ni cuenta anulados, abiertos o fuera del rango (ya probado arriba con ids propios)", async () => {
++    const { promociones: p } = await servicio(docs()).svc.ventas(consulta);
++    const ids = p.porPromocion.map((x) => x.id);
++    for (const mal of ["p-anulada", "p-cocina", "p-otra", "p-vieja"]) assert.equal(ids.includes(mal), false, mal);
++  });
++});
++
+ describe("reportes: casos de borde", () => {
+   it("sin ventas: ceros, ticket promedio null, series completas y sin dividir por cero", async () => {
+     const r = await servicio([]).svc.ventas(consulta);

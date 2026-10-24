@@ -156,13 +156,13 @@ describe("reportes: plegar", () => {
 
 // ---------- el servicio contra la agregación real (mingo) ----------
 
-function item({ code, empresaId = "e1", estado = "pagado", pedido = "PD-0000001", cantidad = 1, subtotal, nombre, codigo, categoria, cliente, pagadoPor = "u1", sistema = false, pagadoTs, origen = "catalogo" }) {
+function item({ code, empresaId = "e1", estado = "pagado", pedido = "PD-0000001", cantidad = 1, subtotal, nombre, codigo, categoria, cliente, pagadoPor = "u1", sistema = false, pagadoTs, origen = "catalogo", promociones }) {
   const historial = [{ de: null, a: "en_cocina", usuarioId: "u1", ts: new Date("2026-10-01T10:00:00Z") }];
   if (estado === "pagado") historial.push({ de: "entregado", a: "pagado", usuarioId: sistema ? null : pagadoPor, sistema, ts: new Date(pagadoTs) });
   if (estado === "anulado") historial.push({ de: "en_cocina", a: "anulado", usuarioId: "u1", ts: new Date("2026-10-20T15:00:00Z") });
   return {
     empresaId, tipo: "doc_item", code, estado,
-    payload: { doc: { pedidoCode: pedido, cantidad, subtotal, moneda: "PEN" } },
+    payload: { doc: { pedidoCode: pedido, cantidad, subtotal, moneda: "PEN", ...(promociones ? { promociones } : {}) } },
     snapshot: { item: { origen, codigo: codigo ?? null, nombre, categoria: categoria ?? null }, ...(cliente ? { cliente } : {}) },
     historial,
   };
@@ -311,6 +311,68 @@ describe("reportes: ventas (agregación real con mingo)", () => {
     assert.deepEqual(r.pagos.map((p) => [p.metodo, p.metodoTexto, p.cobrado, p.propinas]), [["yape", "Yape", 13, 1], [null, "Sin indicar", 8, 0], ["efectivo", "Efectivo", 5, 0.5]]);
     assert.equal(r.resumen.propinas, 1.5);
     assert.equal(r.resumen.recibos, 3);
+  });
+});
+
+describe("reportes: promociones (5.43)", () => {
+  const T = "2026-10-20T15:00:00Z";
+  const promo = (id, nombre, monto, unidades = 1) => ({ id, nombre, monto, unidades });
+  const docs = () => [
+    // 2×1: dos lattes de 10; uno sale gratis. El ítem pagó 10 en vez de 20 (ahorro 10)
+    item({ code: "DOC_ITEM-1", cantidad: 1, subtotal: 0, nombre: "Latte", codigo: "LATTE", categoria: "Cafés", pagadoTs: T, promociones: [promo("p-2x1", "2×1 en lattes", 10)] }),
+    item({ code: "DOC_ITEM-2", cantidad: 1, subtotal: 10, nombre: "Latte", codigo: "LATTE", categoria: "Cafés", pagadoTs: T }),
+    // un ítem con dos promociones distintas
+    item({ code: "DOC_ITEM-3", cantidad: 1, subtotal: 6, nombre: "Torta", codigo: "TORTA", categoria: "Postres", pagadoTs: T, promociones: [promo("p-2x1", "2×1 en lattes (renombrada)", 2.5), promo("p-torta", "Torta 10 %", 1.5)] }),
+    // sin promociones y de antes de 5.42 (sin el campo)
+    item({ code: "DOC_ITEM-4", subtotal: 4, nombre: "Moka", codigo: "MOKA", categoria: "Cafés", pagadoTs: T }),
+    item({ code: "DOC_ITEM-5", subtotal: 3, nombre: "Té", codigo: "TE", categoria: "Cafés", pagadoTs: T, promociones: [] }),
+    // no cuentan: anulado, en cocina, otra empresa, fuera del rango
+    item({ code: "DOC_ITEM-6", estado: "anulado", subtotal: 0, nombre: "A", codigo: "A", promociones: [promo("p-anulada", "Anulada", 50)] }),
+    item({ code: "DOC_ITEM-7", estado: "en_cocina", subtotal: 0, nombre: "B", codigo: "B", promociones: [promo("p-cocina", "En cocina", 50)] }),
+    item({ code: "DOC_ITEM-8", empresaId: "e2", subtotal: 0, nombre: "C", codigo: "C", pagadoTs: T, promociones: [promo("p-otra", "Otra empresa", 50)] }),
+    item({ code: "DOC_ITEM-9", subtotal: 0, nombre: "D", codigo: "D", pagadoTs: "2026-09-01T15:00:00Z", promociones: [promo("p-vieja", "Septiembre", 50)] }),
+    pedidoDoc("PD-0000001", "salon"),
+  ];
+
+  it("suma lo descontado por promoción, con el nombre más reciente y ordenado por ahorro", async () => {
+    const { promociones: p } = await servicio(docs()).svc.ventas(consulta);
+    assert.deepEqual(p.porPromocion.map((x) => [x.id, x.ahorro, x.items, x.unidades]), [["p-2x1", 12.5, 2, 2], ["p-torta", 1.5, 1, 1]]);
+    assert.equal(p.porPromocion[0].nombre, "2×1 en lattes (renombrada)"); // el nombre guardado en el ítem cobrado más reciente
+    assert.deepEqual(p.porPromocion.map((x) => x.porcentaje), [89.3, 10.7]);
+  });
+
+  it("el ahorro total, lo que habría sido sin promociones y su porcentaje", async () => {
+    const r = await servicio(docs()).svc.ventas(consulta);
+    assert.equal(r.resumen.ventas, 23); // 0 + 10 + 6 + 4 + 3: lo cobrado ya trae los descuentos
+    assert.equal(r.promociones.ahorro, 14);
+    assert.equal(r.promociones.ventasAntes, 37);
+    assert.equal(r.promociones.porcentaje, 37.8);
+    assert.equal(r.promociones.items, 3); // entradas de promoción (el ítem 3 tiene dos)
+    assert.equal(r.promociones.otras, null);
+  });
+
+  it("sin promociones: ceros, sin dividir por cero", async () => {
+    for (const d of [[], datos()]) {
+      const { promociones: p, resumen } = await servicio(d).svc.ventas(consulta);
+      assert.deepEqual([p.ahorro, p.porcentaje, p.items, p.porPromocion.length, p.otras], [0, 0, 0, 0, null]);
+      assert.equal(p.ventasAntes, resumen.ventas);
+    }
+  });
+
+  it("más de 8 promociones: se listan las 8 con más ahorro y el resto va en «otras», sin perder el total", async () => {
+    const muchas = Array.from({ length: 11 }, (_, i) =>
+      item({ code: `DOC_ITEM-${i + 1}`, subtotal: 5, nombre: "X", codigo: "X", pagadoTs: T, promociones: [promo(`p${i}`, `Promo ${i}`, 11 - i)] }));
+    const { promociones: p } = await servicio(muchas).svc.ventas(consulta);
+    assert.equal(p.porPromocion.length, 8);
+    assert.deepEqual(p.otras, { cantidad: 3, ahorro: 6, items: 3 }); // 3 + 2 + 1
+    assert.equal(p.ahorro, 66);
+    assert.equal(p.porPromocion.reduce((n, x) => n + x.ahorro, 0) + p.otras.ahorro, p.ahorro);
+  });
+
+  it("no mezcla empresas ni cuenta anulados, abiertos o fuera del rango (ya probado arriba con ids propios)", async () => {
+    const { promociones: p } = await servicio(docs()).svc.ventas(consulta);
+    const ids = p.porPromocion.map((x) => x.id);
+    for (const mal of ["p-anulada", "p-cocina", "p-otra", "p-vieja"]) assert.equal(ids.includes(mal), false, mal);
   });
 });
 
