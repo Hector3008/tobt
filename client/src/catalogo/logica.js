@@ -296,3 +296,28 @@ export function textoVigenciaAnuncio(a) {
 }
 
 export const hayAnuncios = (datos) => (datos?.eventos?.length ?? 0) + (datos?.publicidad?.length ?? 0) > 0;
+
+// ---------- entrar con Google (5.51) ----------
+
+export const URL_SCRIPT_GOOGLE = "https://accounts.google.com/gsi/client";
+const CLIENT_ID_GOOGLE = /^[A-Za-z0-9._-]{10,200}\.apps\.googleusercontent\.com$/;
+
+/** El Client ID de Google que anuncia GET .../cliente (solo sin sesión y si está activado), o null. Solo se acepta con la forma de un Client ID. */
+export function clientIdGoogle(estado) {
+  const id = estado?.google?.clientId;
+  return typeof id === "string" && CLIENT_ID_GOOGLE.test(id) ? id : null;
+}
+
+/**
+ * Lo que se manda a POST .../cuenta/google. El consentimiento y el código de un amigo solo se envían al «Crear cuenta»:
+ * al «Entrar» no se decide nada nuevo (y el núcleo los ignora si la ficha ya existe).
+ */
+export function cuerpoGoogle(credencial, { crear = false, quierePuntos = false, codigoReferido = "" } = {}) {
+  const cuerpo = { credencial };
+  if (crear) {
+    cuerpo.quierePuntos = quierePuntos === true;
+    const codigo = normalizarCodigoReferido(codigoReferido);
+    if (codigo) cuerpo.codigoReferido = codigo;
+  }
+  return cuerpo;
+}

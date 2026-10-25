@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "./api.js";
 import Vales from "./Vales.jsx";
 import Logros from "./Logros.jsx";
 import Retos from "./Retos.jsx";
 import Invitar from "./Invitar.jsx";
-import { codigoDeEnlace, cuerpoRegistro, formatoFecha, formatoPuntos, textoMovimiento, validarRegistro } from "./logica.js";
+import BotonGoogle from "./BotonGoogle.jsx";
+import { clientIdGoogle, codigoDeEnlace, cuerpoGoogle, cuerpoRegistro, formatoFecha, formatoPuntos, textoMovimiento, validarRegistro } from "./logica.js";
 
 // Cuenta del cliente en la carta: entrar, crearla (con casilla de consentimiento para el programa de puntos),
 // cambiar la contraseña temporal que dio el personal y ver sus puntos reales. `estado` es lo que responde
@@ -19,6 +20,12 @@ export default function Cuenta({ slug, estado, alCambiar, moneda }) {
   const [enviando, setEnviando] = useState(false);
   const [verMovimientos, setVerMovimientos] = useState(false);
   const campo = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value }));
+  // El Client ID de Google solo llega sin sesión; se recuerda para que el botón siga ahí después de salir (5.51).
+  const [googleId, setGoogleId] = useState(null);
+  useEffect(() => {
+    const id = clientIdGoogle(estado);
+    if (id) setGoogleId(id);
+  }, [estado]);
 
   async function ejecutar(fn) {
     if (enviando) return;
@@ -142,6 +149,20 @@ export default function Cuenta({ slug, estado, alCambiar, moneda }) {
   const entrar = modo === "entrar";
   return (
     <section className="cat-puntos" aria-label={entrar ? "Entrar" : "Crear cuenta"}>
+      {googleId && (
+        <>
+          <BotonGoogle
+            clientId={googleId}
+            texto={entrar ? "signin_with" : "signup_with"}
+            deshabilitado={enviando}
+            alCredencial={(credencial) =>
+              ejecutar(async () => alCambiar(await api.google(slug, cuerpoGoogle(credencial, { crear: !entrar, quierePuntos: f.quierePuntos, codigoReferido: f.codigoReferido }))))
+            }
+          />
+          {!entrar && <small className="rs-vacio">Si eliges Google, se usan las casillas de abajo (puntos y código de un amigo).</small>}
+          <p className="cat-google__o" role="separator"><span>o con tu correo o teléfono</span></p>
+        </>
+      )}
       <form
         className="rs-form"
         onSubmit={(e) => {

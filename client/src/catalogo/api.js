@@ -48,6 +48,8 @@ export const api = {
   cliente: (slug) => pedir(`tobt/publico/${enc(slug)}/cliente`, { cuenta: true }),
   registro: (slug, cuerpo) => pedir(`tobt/publico/${enc(slug)}/cuenta/registro`, { metodo: "POST", cuerpo, cuenta: true }),
   login: (slug, cuerpo) => pedir(`tobt/publico/${enc(slug)}/cuenta/login`, { metodo: "POST", cuerpo, cuenta: true }),
+  // Entrar con Google (5.51): `credencial` es el ID token que entrega el botón de Google
+  google: (slug, cuerpo) => pedir(`tobt/publico/${enc(slug)}/cuenta/google`, { metodo: "POST", cuerpo, cuenta: true }),
   logout: (slug) => pedir(`tobt/publico/${enc(slug)}/cuenta/logout`, { metodo: "POST", cuerpo: {}, cuenta: true }),
   cambiarPassword: (slug, cuerpo) => pedir(`tobt/publico/${enc(slug)}/cuenta/password`, { metodo: "POST", cuerpo, cuenta: true }),
   // Beneficios y vales (5.30): { beneficios, vales } del cliente de la sesión

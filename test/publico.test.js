@@ -7,7 +7,7 @@ import { ErrorCatalogo } from "core";
 import { agruparPorCategoria, crearPublico, urlImagenSegura } from "../src/publico.js";
 import { resenasDe } from "../src/resenas-demo.js";
 import { limitadorPorIp, paginaCatalogo } from "../src/publico-http.js";
-import { slugDesdeUbicacion, formatoPrecio, filtrarCarta, totalItems, formatoPuntos, rutaDesdeHash, hashPlato, estrellasLlenas, formatoNota, validarRegistro, cuerpoRegistro, textoMovimiento, faltanPuntos, formatoCodigoVale, agruparVales, textoVence, textoAvance, textoFaltan, porcentajeReto, normalizarCodigoReferido, validarCodigoReferido, codigoDeEnlace, enlaceInvitacion, textoPremioReferidos, ESTADO_REFERIDO, textoFecha, textoDias, textoCuando, textoRegla, estadoPromocion, ordenarPromociones, textoDiaEvento, textoEvento, textoVigenciaAnuncio, hayAnuncios } from "../client/src/catalogo/logica.js";
+import { slugDesdeUbicacion, formatoPrecio, filtrarCarta, totalItems, formatoPuntos, rutaDesdeHash, hashPlato, estrellasLlenas, formatoNota, validarRegistro, cuerpoRegistro, textoMovimiento, faltanPuntos, formatoCodigoVale, agruparVales, textoVence, textoAvance, textoFaltan, porcentajeReto, normalizarCodigoReferido, validarCodigoReferido, codigoDeEnlace, enlaceInvitacion, textoPremioReferidos, ESTADO_REFERIDO, textoFecha, textoDias, textoCuando, textoRegla, estadoPromocion, ordenarPromociones, textoDiaEvento, textoEvento, textoVigenciaAnuncio, hayAnuncios, clientIdGoogle, cuerpoGoogle, URL_SCRIPT_GOOGLE } from "../client/src/catalogo/logica.js";
 
 const middleware = () => (req, res, next) => next();
 
@@ -63,7 +63,7 @@ function nucleoFalso() {
             next(err);
           }
         };
-        return { yo: m("yo"), registro: m("registro"), login: m("login"), logout: m("logout"), password: m("password"), consentimiento: m("consentimiento") };
+        return { yo: m("yo"), registro: m("registro"), login: m("login"), google: m("google"), logout: m("logout"), password: m("password"), consentimiento: m("consentimiento") };
       },
     },
   };
@@ -217,6 +217,7 @@ describe("rutas públicas por HTTP", () => {
       ["GET", "cliente", "yo"],
       ["POST", "cuenta/registro", "registro"],
       ["POST", "cuenta/login", "login"],
+      ["POST", "cuenta/google", "google"],
       ["POST", "cuenta/logout", "logout"],
       ["POST", "cuenta/password", "password"],
       ["PUT", "cuenta/consentimiento", "consentimiento"],
@@ -248,6 +249,23 @@ describe("rutas públicas por HTTP", () => {
     try {
       const r = await fetch(`http://127.0.0.1:${srv.address().port}/x/publico/cafe-central/cliente`);
       assert.equal(r.status, 404);
+    } finally {
+      srv.close();
+    }
+  });
+
+  it("un núcleo anterior, sin entrar con Google, no monta esa ruta y el resto de la cuenta sigue", async () => {
+    const viejo = nucleoFalso();
+    const { google, ...resto } = viejo.cuentasCliente.manejadores({ empresaDe: async () => ({ id: "e1", slug: "cafe-central" }) });
+    assert.equal(typeof google, "function");
+    viejo.cuentasCliente = { manejadores: () => resto };
+    const app = express();
+    app.use("/x", createRouter({ core: viejo }));
+    const srv = await new Promise((r) => { const s = app.listen(0, () => r(s)); });
+    try {
+      const base = `http://127.0.0.1:${srv.address().port}/x/publico/cafe-central`;
+      assert.equal((await fetch(`${base}/cuenta/google`, { method: "POST", headers: { "x-requested-with": "fetch" } })).status, 404);
+      assert.equal((await fetch(`${base}/cliente`)).status, 200);
     } finally {
       srv.close();
     }
@@ -640,5 +658,27 @@ describe("textos de eventos y publicidad en la carta", () => {
     assert.equal(hayAnuncios({ eventos: [{}], publicidad: [] }), true);
     assert.equal(hayAnuncios({ eventos: [], publicidad: [{}] }), true);
     for (const sin of [null, undefined, {}, { eventos: [], publicidad: [] }]) assert.equal(hayAnuncios(sin), false);
+  });
+});
+
+// ---------- entrar con Google (5.51) ----------
+
+describe("entrar con Google en la carta", () => {
+  it("el Client ID solo se acepta con forma de Client ID de Google (no se inyecta cualquier texto)", () => {
+    const ok = "1234567890-abc.apps.googleusercontent.com";
+    assert.equal(clientIdGoogle({ sesion: false, google: { clientId: ok } }), ok);
+    for (const mal of [undefined, null, {}, { google: {} }, { google: { clientId: 42 } }, { google: { clientId: "" } },
+      { google: { clientId: "evil.example.com" } }, { google: { clientId: "x.apps.googleusercontent.com" } },
+      { google: { clientId: `${ok}"><script>` } }, { google: { clientId: `javascript:${ok}` } }])
+      assert.equal(clientIdGoogle(mal), null, JSON.stringify(mal));
+  });
+  it("al entrar solo va la credencial; al crear cuenta, también el consentimiento y el código de un amigo", () => {
+    assert.deepEqual(cuerpoGoogle("tok"), { credencial: "tok" });
+    assert.deepEqual(cuerpoGoogle("tok", { crear: false, quierePuntos: true, codigoReferido: "abc2345" }), { credencial: "tok" });
+    assert.deepEqual(cuerpoGoogle("tok", { crear: true, quierePuntos: true, codigoReferido: " abc-2345 " }), { credencial: "tok", quierePuntos: true, codigoReferido: "ABC2345" });
+    assert.deepEqual(cuerpoGoogle("tok", { crear: true }), { credencial: "tok", quierePuntos: false });
+  });
+  it("el script de Google viene de accounts.google.com por https", () => {
+    assert.equal(URL_SCRIPT_GOOGLE, "https://accounts.google.com/gsi/client");
   });
 });

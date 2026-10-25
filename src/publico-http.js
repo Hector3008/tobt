@@ -13,6 +13,7 @@ import { ErrorPedido } from "./errores.js";
  *   GET  /publico/:empresa/cliente                  { sesion:false } | { sesion:true, cliente, puntos }
  *   POST /publico/:empresa/cuenta/registro          { nombre, telefono?, correo?, password, quierePuntos? }
  *   POST /publico/:empresa/cuenta/login             { usuario, password }
+ *   POST /publico/:empresa/cuenta/google            { credencial, quierePuntos?, codigoReferido? }   entrar con Google (5.51); solo si el núcleo lo trae
  *   POST /publico/:empresa/cuenta/logout
  *   POST /publico/:empresa/cuenta/password          { passwordActual, passwordNueva }
  *   PUT  /publico/:empresa/cuenta/consentimiento    { otorgado }
@@ -118,6 +119,8 @@ export function montarRutasPublicas(router, publico, htmlCatalogo, limitador = l
     router.get("/publico/:empresa/cliente", limitador, cuentas.yo);
     router.post("/publico/:empresa/cuenta/registro", limitador, cuentas.registro);
     router.post("/publico/:empresa/cuenta/login", limitador, cuentas.login);
+    // Entrar con Google (5.51): un núcleo anterior no trae el manejador y la ruta simplemente no existe.
+    if (typeof cuentas.google === "function") router.post("/publico/:empresa/cuenta/google", limitador, cuentas.google);
     router.post("/publico/:empresa/cuenta/logout", limitador, cuentas.logout);
     router.post("/publico/:empresa/cuenta/password", limitador, cuentas.password);
     router.put("/publico/:empresa/cuenta/consentimiento", limitador, cuentas.consentimiento);

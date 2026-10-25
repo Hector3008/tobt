@@ -84,3 +84,8 @@
 .cat-anuncio__foto { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: var(--radio); background: var(--color-borde); margin-bottom: 4px; }
 .cat-anuncio__cuando { color: var(--color-principal); font-weight: 600; }
 .cat-anuncio--evento { border-left: 4px solid var(--color-principal); }
+
+/* Entrar con Google (5.51) */
+.cat-google { display: flex; justify-content: center; min-height: 44px; margin-bottom: 8px; }
+.cat-google__o { display: flex; align-items: center; gap: 8px; margin: 12px 0; color: var(--color-texto-suave); font-size: .8125rem; }
+.cat-google__o::before, .cat-google__o::after { content: ""; flex: 1; border-top: 1px solid var(--color-borde); }
