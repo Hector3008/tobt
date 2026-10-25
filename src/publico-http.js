@@ -16,6 +16,7 @@ import { ErrorPedido } from "./errores.js";
  *   POST /publico/:empresa/cuenta/google            { credencial, quierePuntos?, codigoReferido? }   entrar con Google (5.51); solo si el núcleo lo trae
  *   POST /publico/:empresa/cuenta/logout
  *   POST /publico/:empresa/cuenta/password          { passwordActual, passwordNueva }
+ *   PUT  /publico/:empresa/cuenta/nombre            { nombre }   (el cliente corrige su propio nombre)
  *   PUT  /publico/:empresa/cuenta/consentimiento    { otorgado }
  *   GET  /publico/:empresa/cuenta/vales             { beneficios, vales }          (publico-vales.js, 5.30)
  *   POST /publico/:empresa/cuenta/vales             { beneficioId }                canjea puntos por un vale
@@ -123,6 +124,8 @@ export function montarRutasPublicas(router, publico, htmlCatalogo, limitador = l
     if (typeof cuentas.google === "function") router.post("/publico/:empresa/cuenta/google", limitador, cuentas.google);
     router.post("/publico/:empresa/cuenta/logout", limitador, cuentas.logout);
     router.post("/publico/:empresa/cuenta/password", limitador, cuentas.password);
+    // Editar el propio nombre (5.53): igual que Google, un núcleo anterior no trae el manejador y la ruta no existe.
+    if (typeof cuentas.nombre === "function") router.put("/publico/:empresa/cuenta/nombre", limitador, cuentas.nombre);
     router.put("/publico/:empresa/cuenta/consentimiento", limitador, cuentas.consentimiento);
   }
 

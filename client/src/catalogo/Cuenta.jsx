@@ -5,7 +5,7 @@ import Logros from "./Logros.jsx";
 import Retos from "./Retos.jsx";
 import Invitar from "./Invitar.jsx";
 import BotonGoogle from "./BotonGoogle.jsx";
-import { clientIdGoogle, codigoDeEnlace, cuerpoGoogle, cuerpoRegistro, formatoFecha, formatoPuntos, textoMovimiento, validarRegistro } from "./logica.js";
+import { clientIdGoogle, codigoDeEnlace, cuerpoGoogle, cuerpoRegistro, formatoFecha, formatoPuntos, textoMovimiento, validarNombreCuenta, validarRegistro, MAX_NOMBRE } from "./logica.js";
 
 // Cuenta del cliente en la carta: entrar, crearla (con casilla de consentimiento para el programa de puntos),
 // cambiar la contraseña temporal que dio el personal y ver sus puntos reales. `estado` es lo que responde
@@ -19,6 +19,7 @@ export default function Cuenta({ slug, estado, alCambiar, moneda }) {
   const [error, setError] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [verMovimientos, setVerMovimientos] = useState(false);
+  const [nombreNuevo, setNombreNuevo] = useState(null); // null = no se está editando
   const campo = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value }));
   // El Client ID de Google solo llega sin sesión; se recuerda para que el botón siga ahí después de salir (5.51).
   const [googleId, setGoogleId] = useState(null);
@@ -36,6 +37,7 @@ export default function Cuenta({ slug, estado, alCambiar, moneda }) {
       setF({ nombre: "", usuario: "", password: "", repetir: "", quierePuntos: false, codigoReferido: "" });
       setCambio({ actual: "", nueva: "", repetir: "" });
       setModo(null);
+      setNombreNuevo(null);
       return r;
     } catch (e) {
       setError(e.message);
@@ -83,7 +85,33 @@ export default function Cuenta({ slug, estado, alCambiar, moneda }) {
       <section className="cat-puntos" aria-label="Tus puntos">
         <div className="cat-puntos__fila">
           <div>
-            <small>Hola, {cliente.nombre}</small>
+            {nombreNuevo === null ? (
+              <small>
+                Hola, {cliente.nombre}{" "}
+                <button type="button" className="cat-enlace" disabled={enviando} onClick={() => { setNombreNuevo(cliente.nombre); setError(""); }}>
+                  Cambiar nombre
+                </button>
+              </small>
+            ) : (
+              <form
+                className="cat-nombre"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const problema = validarNombreCuenta(nombreNuevo);
+                  if (problema) return setError(problema);
+                  ejecutar(async () => alCambiar(await api.cambiarNombre(slug, nombreNuevo.trim())));
+                }}
+              >
+                <label className="campo">
+                  <span>¿Cómo te conocen en el local?</span>
+                  <input value={nombreNuevo} maxLength={MAX_NOMBRE} autoComplete="name" autoFocus onChange={(e) => setNombreNuevo(e.target.value)} />
+                </label>
+                <div className="rs-acciones">
+                  <button type="submit" className="rs-btn rs-btn--primario" disabled={enviando}>{enviando ? "Guardando…" : "Guardar"}</button>
+                  <button type="button" className="rs-btn" disabled={enviando} onClick={() => { setNombreNuevo(null); setError(""); }}>Cancelar</button>
+                </div>
+              </form>
+            )}
             {cliente.programaPuntos && puntos?.habilitada !== false ? (
               <p className="cat-puntos__total"><strong>{puntos?.saldo ?? 0}</strong> puntos acumulados</p>
             ) : puntos?.habilitada === false ? (
@@ -176,7 +204,7 @@ export default function Cuenta({ slug, estado, alCambiar, moneda }) {
           ejecutar(async () => alCambiar(await api.registro(slug, cuerpoRegistro(f))));
         }}
       >
-        {!entrar && <label className="campo"><span>Nombre</span><input value={f.nombre} maxLength={100} autoComplete="name" onChange={campo("nombre")} /></label>}
+        {!entrar && <label className="campo"><span>Nombre</span><input value={f.nombre} maxLength={MAX_NOMBRE} autoComplete="name" onChange={campo("nombre")} /></label>}
         <label className="campo"><span>Correo o teléfono</span><input value={f.usuario} maxLength={200} autoComplete="username" onChange={campo("usuario")} /></label>
         <label className="campo"><span>Contraseña</span><input type="password" autoComplete={entrar ? "current-password" : "new-password"} value={f.password} onChange={campo("password")} /></label>
         {!entrar && (

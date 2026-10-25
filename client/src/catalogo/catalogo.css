@@ -89,3 +89,8 @@
 .cat-google { display: flex; justify-content: center; min-height: 44px; margin-bottom: 8px; }
 .cat-google__o { display: flex; align-items: center; gap: 8px; margin: 12px 0; color: var(--color-texto-suave); font-size: .8125rem; }
 .cat-google__o::before, .cat-google__o::after { content: ""; flex: 1; border-top: 1px solid var(--color-borde); }
+
+/* Cambiar el nombre desde la cuenta (5.53) */
+.cat-enlace { background: none; border: 0; padding: 0; margin-left: 4px; color: var(--color-principal); font: inherit; text-decoration: underline; cursor: pointer; }
+.cat-enlace:disabled { opacity: 0.6; cursor: default; }
+.cat-nombre { display: grid; gap: 8px; min-width: min(100%, 260px); }

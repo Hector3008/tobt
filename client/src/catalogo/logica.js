@@ -85,11 +85,23 @@ export function textoMovimiento(m) {
 
 /** Valida el formulario de registro antes de enviarlo (el servidor valida de verdad). Devuelve un texto o null. */
 export function validarRegistro({ nombre, usuario, password, repetir, codigoReferido }) {
-  if (!String(nombre ?? "").trim()) return "Escribe tu nombre.";
+  const problemaNombre = validarNombreCuenta(nombre);
+  if (problemaNombre) return problemaNombre;
   if (!String(usuario ?? "").trim()) return "Escribe tu correo o tu teléfono.";
   if (String(password ?? "").length < 8) return "La contraseña debe tener al menos 8 caracteres.";
   if (password !== repetir) return "Las contraseñas no coinciden.";
   return validarCodigoReferido(codigoReferido);
+}
+
+/** Máximo de caracteres del nombre de la ficha (el mismo que valida el núcleo). */
+export const MAX_NOMBRE = 80;
+
+/** Revisa el nombre que el cliente quiere ponerse. Devuelve el mensaje del problema, o "" si está bien. */
+export function validarNombreCuenta(nombre) {
+  const t = String(nombre ?? "").trim();
+  if (!t) return "Escribe tu nombre.";
+  if (t.length > MAX_NOMBRE) return `El nombre admite como máximo ${MAX_NOMBRE} caracteres.`;
+  return "";
 }
 
 /** Separa lo que escribió el cliente en correo o teléfono (lo que lleva @ es correo). */

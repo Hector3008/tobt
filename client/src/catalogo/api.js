@@ -56,5 +56,7 @@ export const api = {
   vales: (slug) => pedir(`tobt/publico/${enc(slug)}/cuenta/vales`, { cuenta: true }),
   canjearVale: (slug, beneficioId) => pedir(`tobt/publico/${enc(slug)}/cuenta/vales`, { metodo: "POST", cuerpo: { beneficioId }, cuenta: true }),
   cancelarVale: (slug, codigo) => pedir(`tobt/publico/${enc(slug)}/cuenta/vales/${enc(codigo)}/cancelar`, { metodo: "POST", cuerpo: {}, cuenta: true }),
+  // Editar mi nombre (5.53): devuelve la cuenta ya con el nombre nuevo
+  cambiarNombre: (slug, nombre) => pedir(`tobt/publico/${enc(slug)}/cuenta/nombre`, { metodo: "PUT", cuerpo: { nombre }, cuenta: true }),
   consentimiento: (slug, otorgado) => pedir(`tobt/publico/${enc(slug)}/cuenta/consentimiento`, { metodo: "PUT", cuerpo: { otorgado }, cuenta: true }),
 };

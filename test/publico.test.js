@@ -7,7 +7,7 @@ import { ErrorCatalogo } from "core";
 import { agruparPorCategoria, crearPublico, urlImagenSegura } from "../src/publico.js";
 import { resenasDe } from "../src/resenas-demo.js";
 import { limitadorPorIp, paginaCatalogo } from "../src/publico-http.js";
-import { slugDesdeUbicacion, formatoPrecio, filtrarCarta, totalItems, formatoPuntos, rutaDesdeHash, hashPlato, estrellasLlenas, formatoNota, validarRegistro, cuerpoRegistro, textoMovimiento, faltanPuntos, formatoCodigoVale, agruparVales, textoVence, textoAvance, textoFaltan, porcentajeReto, normalizarCodigoReferido, validarCodigoReferido, codigoDeEnlace, enlaceInvitacion, textoPremioReferidos, ESTADO_REFERIDO, textoFecha, textoDias, textoCuando, textoRegla, estadoPromocion, ordenarPromociones, textoDiaEvento, textoEvento, textoVigenciaAnuncio, hayAnuncios, clientIdGoogle, cuerpoGoogle, URL_SCRIPT_GOOGLE } from "../client/src/catalogo/logica.js";
+import { slugDesdeUbicacion, formatoPrecio, filtrarCarta, totalItems, formatoPuntos, rutaDesdeHash, hashPlato, estrellasLlenas, formatoNota, validarRegistro, cuerpoRegistro, textoMovimiento, faltanPuntos, formatoCodigoVale, agruparVales, textoVence, textoAvance, textoFaltan, porcentajeReto, normalizarCodigoReferido, validarCodigoReferido, codigoDeEnlace, enlaceInvitacion, textoPremioReferidos, ESTADO_REFERIDO, textoFecha, textoDias, textoCuando, textoRegla, estadoPromocion, ordenarPromociones, textoDiaEvento, textoEvento, textoVigenciaAnuncio, hayAnuncios, clientIdGoogle, cuerpoGoogle, URL_SCRIPT_GOOGLE, validarNombreCuenta, MAX_NOMBRE } from "../client/src/catalogo/logica.js";
 
 const middleware = () => (req, res, next) => next();
 
@@ -63,7 +63,7 @@ function nucleoFalso() {
             next(err);
           }
         };
-        return { yo: m("yo"), registro: m("registro"), login: m("login"), google: m("google"), logout: m("logout"), password: m("password"), consentimiento: m("consentimiento") };
+        return { yo: m("yo"), registro: m("registro"), login: m("login"), google: m("google"), logout: m("logout"), password: m("password"), nombre: m("nombre"), consentimiento: m("consentimiento") };
       },
     },
   };
@@ -220,6 +220,7 @@ describe("rutas públicas por HTTP", () => {
       ["POST", "cuenta/google", "google"],
       ["POST", "cuenta/logout", "logout"],
       ["POST", "cuenta/password", "password"],
+      ["PUT", "cuenta/nombre", "nombre"],
       ["PUT", "cuenta/consentimiento", "consentimiento"],
     ];
     for (const [metodo, ruta, manejador] of casos) {
@@ -249,6 +250,23 @@ describe("rutas públicas por HTTP", () => {
     try {
       const r = await fetch(`http://127.0.0.1:${srv.address().port}/x/publico/cafe-central/cliente`);
       assert.equal(r.status, 404);
+    } finally {
+      srv.close();
+    }
+  });
+
+  it("un núcleo anterior, sin editar el nombre, no monta esa ruta y el resto de la cuenta sigue", async () => {
+    const viejo = nucleoFalso();
+    const { nombre, ...resto } = viejo.cuentasCliente.manejadores({ empresaDe: async () => ({ id: "e1", slug: "cafe-central" }) });
+    assert.equal(typeof nombre, "function");
+    viejo.cuentasCliente = { manejadores: () => resto };
+    const app = express();
+    app.use("/x", createRouter({ core: viejo }));
+    const srv = await new Promise((r) => { const s = app.listen(0, () => r(s)); });
+    try {
+      const base = `http://127.0.0.1:${srv.address().port}/x/publico/cafe-central`;
+      assert.equal((await fetch(`${base}/cuenta/nombre`, { method: "PUT", headers: { "x-requested-with": "fetch" } })).status, 404);
+      assert.equal((await fetch(`${base}/cliente`)).status, 200);
     } finally {
       srv.close();
     }
@@ -354,10 +372,20 @@ describe("lógica del front de la carta", () => {
 });
 
 describe("lógica de la cuenta en la carta", () => {
+  it("validarNombreCuenta: pide un nombre y respeta el máximo de 80 (el mismo del núcleo)", () => {
+    assert.equal(MAX_NOMBRE, 80);
+    assert.equal(validarNombreCuenta("Héctor"), "");
+    assert.equal(validarNombreCuenta("  H  "), "");
+    assert.equal(validarNombreCuenta("x".repeat(80)), "");
+    for (const mal of ["", "   ", null, undefined]) assert.match(validarNombreCuenta(mal), /Escribe tu nombre/);
+    assert.match(validarNombreCuenta("x".repeat(81)), /80 caracteres/);
+    assert.match(validarNombreCuenta(`  ${"x".repeat(81)}  `), /80 caracteres/);
+  });
   it("validarRegistro: pide nombre, usuario, 8+ caracteres y que coincidan", () => {
     const ok = { nombre: "Ana", usuario: "ana@correo.pe", password: "12345678", repetir: "12345678" };
     assert.equal(validarRegistro(ok), null);
     assert.match(validarRegistro({ ...ok, nombre: " " }), /nombre/);
+    assert.match(validarRegistro({ ...ok, nombre: "x".repeat(81) }), /80 caracteres/);
     assert.match(validarRegistro({ ...ok, usuario: "" }), /correo o tu teléfono/);
     assert.match(validarRegistro({ ...ok, password: "123", repetir: "123" }), /8 caracteres/);
     assert.match(validarRegistro({ ...ok, repetir: "otra-cosa" }), /no coinciden/);
