@@ -172,3 +172,15 @@ body { margin: 0; background: var(--color-fondo); color: var(--color-texto); fon
   /* el logo se imprime en blanco y negro con buen contraste: sirve en una impresora térmica de 80 mm */
   .rs-recibo__logo { max-height: 18mm; max-width: 40mm; filter: grayscale(1) contrast(1.4); }
 }
+
+/* Pie legal (5.55): la app y el pie van en una columna para que el pie quede abajo aunque la pantalla sea corta.
+   Cada pantalla conserva su propio ancho y centrado: lo que está dentro del contenido ocupa el ancho disponible. */
+.app-con-pie { min-height: 100dvh; display: flex; flex-direction: column; }
+.app-contenido { flex: 1; display: flex; flex-direction: column; }
+.app-contenido > * { width: 100%; }
+.app-contenido > .centrado, .app-contenido > .rs-centrado { flex: 1; min-height: 0; }
+.pie-legal { padding: 16px; text-align: center; font-size: .8125rem; color: var(--color-texto-suave); }
+.pie-legal a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.pie-legal a:hover { color: var(--color-texto); }
+.pie-legal a:focus-visible { outline: 2px solid var(--color-principal); outline-offset: 2px; border-radius: 2px; }
+@media print { .pie-legal { display: none; } }

@@ -1,11 +1,17 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import Catalogo from "./Catalogo.jsx";
+import Pie from "../Pie.jsx";
 import "../estilos.css";
 import "./catalogo.css";
 
 createRoot(document.getElementById("raiz")).render(
   <StrictMode>
-    <Catalogo />
+    <div className="app-con-pie">
+      <div className="app-contenido">
+        <Catalogo />
+      </div>
+      <Pie />
+    </div>
   </StrictMode>
 );
