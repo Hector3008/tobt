@@ -3,6 +3,7 @@ import { api } from "./api.js";
 import Plato from "./Plato.jsx";
 import Cuenta from "./Cuenta.jsx";
 import Promociones from "./Promociones.jsx";
+import Anuncios from "./Anuncios.jsx";
 import { aplicarPaleta, esloganDe, logoSeguro } from "./marca.js";
 import { filtrarCarta, formatoPrecio, hashPlato, rutaDesdeHash, slugDesdeUbicacion, totalItems } from "./logica.js";
 
@@ -13,6 +14,7 @@ export default function Catalogo() {
   const [carta, setCarta] = useState(null);
   const [cliente, setCliente] = useState(null);
   const [promos, setPromos] = useState(null); // promociones vigentes (5.43); si no cargan, la carta se ve igual
+  const [anuncios, setAnuncios] = useState(null); // eventos y publicidad (5.49); si no cargan, la carta se ve igual
   const [errorCarta, setErrorCarta] = useState(null);
   const [texto, setTexto] = useState("");
   const [categoria, setCategoria] = useState(null);
@@ -47,6 +49,7 @@ export default function Catalogo() {
     api.carta(slug).then((d) => vigente && setCarta(d), (e) => vigente && setErrorCarta(e.message));
     api.cliente(slug).then((d) => vigente && setCliente(d), () => {});
     api.promociones(slug).then((d) => vigente && setPromos(d), () => {});
+    api.anuncios(slug).then((d) => vigente && setAnuncios(d), () => {});
     return () => {
       vigente = false;
     };
@@ -90,6 +93,8 @@ export default function Catalogo() {
       </header>
 
       <Cuenta slug={slug} estado={cliente} alCambiar={setCliente} moneda={empresa.moneda} />
+
+      <Anuncios datos={anuncios} />
 
       <Promociones datos={promos} moneda={empresa.moneda} />
 

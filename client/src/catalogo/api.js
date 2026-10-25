@@ -42,6 +42,7 @@ const enc = encodeURIComponent;
 export const api = {
   carta: (slug) => pedir(`tobt/publico/${enc(slug)}/carta`),
   promociones: (slug) => pedir(`tobt/publico/${enc(slug)}/promociones`),
+  anuncios: (slug) => pedir(`tobt/publico/${enc(slug)}/anuncios`),
   plato: (slug, codigo) => pedir(`tobt/publico/${enc(slug)}/plato/${enc(codigo)}`),
   // Cuenta del cliente. `cliente` responde { sesion: false } sin sesión.
   cliente: (slug) => pedir(`tobt/publico/${enc(slug)}/cliente`, { cuenta: true }),

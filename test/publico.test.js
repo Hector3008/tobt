@@ -7,7 +7,7 @@ import { ErrorCatalogo } from "core";
 import { agruparPorCategoria, crearPublico, urlImagenSegura } from "../src/publico.js";
 import { resenasDe } from "../src/resenas-demo.js";
 import { limitadorPorIp, paginaCatalogo } from "../src/publico-http.js";
-import { slugDesdeUbicacion, formatoPrecio, filtrarCarta, totalItems, formatoPuntos, rutaDesdeHash, hashPlato, estrellasLlenas, formatoNota, validarRegistro, cuerpoRegistro, textoMovimiento, faltanPuntos, formatoCodigoVale, agruparVales, textoVence, textoAvance, textoFaltan, porcentajeReto, normalizarCodigoReferido, validarCodigoReferido, codigoDeEnlace, enlaceInvitacion, textoPremioReferidos, ESTADO_REFERIDO, textoFecha, textoDias, textoCuando, textoRegla, estadoPromocion, ordenarPromociones } from "../client/src/catalogo/logica.js";
+import { slugDesdeUbicacion, formatoPrecio, filtrarCarta, totalItems, formatoPuntos, rutaDesdeHash, hashPlato, estrellasLlenas, formatoNota, validarRegistro, cuerpoRegistro, textoMovimiento, faltanPuntos, formatoCodigoVale, agruparVales, textoVence, textoAvance, textoFaltan, porcentajeReto, normalizarCodigoReferido, validarCodigoReferido, codigoDeEnlace, enlaceInvitacion, textoPremioReferidos, ESTADO_REFERIDO, textoFecha, textoDias, textoCuando, textoRegla, estadoPromocion, ordenarPromociones, textoDiaEvento, textoEvento, textoVigenciaAnuncio, hayAnuncios } from "../client/src/catalogo/logica.js";
 
 const middleware = () => (req, res, next) => next();
 
@@ -539,5 +539,106 @@ describe("textos de las promociones en la carta", () => {
     assert.deepEqual(estadoPromocion(regla({ vigenteAhora: false, dias: [1] }), "2026-10-22"), { clave: "fuera", texto: "Hoy no rige" });
     assert.deepEqual(ordenarPromociones([regla({ id: "a", vigenteAhora: false }), regla({ id: "b" }), regla({ id: "c", vigenteAhora: false }), regla({ id: "d" })]).map((p) => p.id), ["b", "d", "a", "c"]);
     assert.deepEqual(ordenarPromociones(undefined), []);
+  });
+});
+
+// ---------- eventos y publicidad en la carta (5.49) ----------
+
+const anuncio = (o) => ({ id: "a", tipo: "publicidad", titulo: "T", descripcion: null, imagen: null, fecha: null, hora: null, lugar: null, vigencia: null, ...o });
+
+function nucleoConAnuncios(eventos, publicidad) {
+  const nucleo = nucleoFalso();
+  nucleo.anuncios = {
+    async vigentes({ empresaId, ahora }) {
+      assert.equal(empresaId, "e1", "solo los anuncios de la empresa del slug");
+      assert.ok(ahora instanceof Date);
+      return { zona: "America/Lima", hoy: "2026-10-22", eventos, publicidad };
+    },
+  };
+  return nucleo;
+}
+
+describe("servicio público: anuncios", () => {
+  it("devuelve eventos y publicidad tal como los ordena el núcleo, con el día de la empresa", async () => {
+    const publico = crearPublico(nucleoConAnuncios(
+      [anuncio({ id: "e1", tipo: "evento", titulo: "Jazz", fecha: "2026-10-24", hora: "21:00", lugar: "Terraza" })],
+      [anuncio({ id: "p1", titulo: "Happy hour", vigencia: { desde: null, hasta: "2026-12-31" } })],
+    ));
+    const r = await publico.anuncios({ slug: "cafe-central" });
+    assert.deepEqual(r.empresa, { nombre: "Café Central" });
+    assert.equal(r.hoy, "2026-10-22");
+    assert.deepEqual(r.eventos.map((e) => [e.id, e.fecha, e.hora, e.lugar]), [["e1", "2026-10-24", "21:00", "Terraza"]]);
+    assert.deepEqual(r.publicidad.map((a) => [a.id, a.vigencia]), [["p1", { desde: null, hasta: "2026-12-31" }]]);
+  });
+
+  it("la foto vuelve a pasar por urlImagenSegura: solo https", async () => {
+    const publico = crearPublico(nucleoConAnuncios(
+      [anuncio({ id: "e", tipo: "evento", fecha: "2026-10-24", hora: "21:00", imagen: "javascript:alert(1)" })],
+      [anuncio({ id: "p", imagen: "https://img.example.com/a.jpg" }), anuncio({ id: "q", imagen: "http://img.example.com/a.jpg" })],
+    ));
+    const r = await publico.anuncios({ slug: "cafe-central" });
+    assert.equal(r.eventos[0].imagen, null);
+    assert.deepEqual(r.publicidad.map((a) => a.imagen), ["https://img.example.com/a.jpg", null]);
+  });
+
+  it("no filtra datos internos, y un núcleo sin anuncios da listas vacías", async () => {
+    const publico = crearPublico(nucleoConAnuncios([], [{ ...anuncio({}), creadoPor: "u1", activo: true, creadoTs: "x" }]));
+    const json = JSON.stringify(await publico.anuncios({ slug: "cafe-central" }));
+    for (const interno of ["creadoPor", "activo", "creadoTs"]) assert.equal(json.includes(interno), false, interno);
+    const vacio = await crearPublico(nucleoFalso()).anuncios({ slug: "cafe-central" });
+    assert.deepEqual([vacio.eventos, vacio.publicidad], [[], []]);
+  });
+
+  it("una carta desconocida, sin el servicio o dada de baja da 404", async () => {
+    const publico = crearPublico(nucleoConAnuncios([], []));
+    for (const slug of ["no-existe", "sin-servicio", "servicio-off", "empresa-baja"])
+      await assert.rejects(publico.anuncios({ slug }), (e) => e.status === 404, slug);
+  });
+});
+
+describe("ruta pública de anuncios", () => {
+  let server, url;
+  before(async () => {
+    const app = express();
+    app.use("/base/tobt", createRouter({ core: nucleoConAnuncios([anuncio({ id: "e", tipo: "evento", titulo: "Jazz", fecha: "2026-10-24", hora: "21:00" })], []) }));
+    await new Promise((r) => (server = app.listen(0, r)));
+    url = `http://127.0.0.1:${server.address().port}/base/tobt`;
+  });
+  after(() => server.close());
+
+  it("responde sin sesión, con caché corta; una carta desconocida da 404", async () => {
+    const r = await fetch(`${url}/publico/cafe-central/anuncios`);
+    assert.equal(r.status, 200);
+    assert.match(r.headers.get("cache-control"), /max-age=30/);
+    assert.equal((await r.json()).eventos[0].titulo, "Jazz");
+    assert.equal((await fetch(`${url}/publico/no-existe/anuncios`)).status, 404);
+  });
+});
+
+describe("textos de eventos y publicidad en la carta", () => {
+  it("día del evento: hoy, mañana, o día de la semana con fecha (el año solo si cambia)", () => {
+    assert.equal(textoDiaEvento("2026-10-22", "2026-10-22"), "Hoy");
+    assert.equal(textoDiaEvento("2026-10-23", "2026-10-22"), "Mañana");
+    assert.equal(textoDiaEvento("2026-11-07", "2026-10-22"), "Sábado 7 nov");
+    assert.equal(textoDiaEvento("2026-12-31", "2026-10-22"), "Jueves 31 dic");
+    assert.equal(textoDiaEvento("2027-01-02", "2026-10-22"), "Sábado 2 ene 2027");
+    assert.equal(textoDiaEvento("2026-11-30", "2026-10-31"), "Lunes 30 nov", "cruzar de mes no rompe «mañana»");
+    assert.equal(textoDiaEvento("2026-11-01", "2026-10-31"), "Mañana");
+    assert.equal(textoDiaEvento("basura", "2026-10-22"), "basura");
+  });
+  it("evento: día, hora y lugar si lo hay", () => {
+    assert.equal(textoEvento({ fecha: "2026-11-07", hora: "21:00", lugar: "Terraza" }, "2026-10-22"), "Sábado 7 nov · 21:00 · Terraza");
+    assert.equal(textoEvento({ fecha: "2026-10-22", hora: "21:00", lugar: null }, "2026-10-22"), "Hoy · 21:00");
+  });
+  it("vigencia de una publicidad: rango, solo hasta, solo desde o nada", () => {
+    assert.equal(textoVigenciaAnuncio({ vigencia: { desde: "2026-11-01", hasta: "2026-11-30" } }), "Del 1 nov 2026 al 30 nov 2026");
+    assert.equal(textoVigenciaAnuncio({ vigencia: { desde: null, hasta: "2026-11-30" } }), "Hasta el 30 nov 2026");
+    assert.equal(textoVigenciaAnuncio({ vigencia: { desde: "2026-11-01", hasta: null } }), "Desde el 1 nov 2026");
+    assert.equal(textoVigenciaAnuncio({ vigencia: null }), null);
+  });
+  it("hayAnuncios: con uno de cualquier tipo; sin datos o vacío, no", () => {
+    assert.equal(hayAnuncios({ eventos: [{}], publicidad: [] }), true);
+    assert.equal(hayAnuncios({ eventos: [], publicidad: [{}] }), true);
+    for (const sin of [null, undefined, {}, { eventos: [], publicidad: [] }]) assert.equal(hayAnuncios(sin), false);
   });
 });

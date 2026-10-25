@@ -140,11 +140,28 @@ export function crearPublico(core) {
     return { empresa, hoy: r.hoy, promociones: visibles };
   }
 
+  /**
+   * Eventos y publicidad para mostrar en la carta (5.49). El núcleo ya filtra por activo y vigencia (a la hora de la
+   * empresa) y ordena; aquí solo se vuelve a pasar la foto por `urlImagenSegura` (https y nada más) antes de salir al
+   * público, aunque el núcleo ya la validó. Con un núcleo sin anuncios, listas vacías.
+   */
+  async function anuncios({ slug, ahora = new Date() }) {
+    const e = await empresaPorSlug(slug);
+    const empresa = { nombre: e.nombre };
+    if (typeof core.anuncios?.vigentes !== "function") return { empresa, hoy: null, eventos: [], publicidad: [] };
+    const r = await core.anuncios.vigentes({ empresaId: e._id, ahora });
+    const salida = (a) => ({
+      id: a.id, tipo: a.tipo, titulo: a.titulo, descripcion: a.descripcion ?? null, imagen: urlImagenSegura(a.imagen),
+      fecha: a.fecha ?? null, hora: a.hora ?? null, lugar: a.lugar ?? null, vigencia: a.vigencia ?? null,
+    });
+    return { empresa, hoy: r.hoy, eventos: r.eventos.map(salida), publicidad: r.publicidad.map(salida) };
+  }
+
   /** La empresa de una petición pública, en la forma que piden los manejadores de cuentas del núcleo. */
   async function empresaDe(req) {
     const e = await empresaPorSlug(req.params?.empresa);
     return { id: e._id, slug: e.slug };
   }
 
-  return { carta, plato, promociones, empresaPorSlug, empresaDe };
+  return { carta, plato, promociones, anuncios, empresaPorSlug, empresaDe };
 }

@@ -77,3 +77,10 @@
 .cat-promo--fuera { opacity: .72; }
 .cat-promo__estado { font-size: .8125rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--color-borde); white-space: nowrap; }
 .cat-promo__estado--ahora { color: var(--color-principal); border-color: var(--color-principal); }
+
+/* Eventos y publicidad en la carta (5.49) */
+.cat-anuncios { margin-bottom: 20px; display: grid; gap: 8px; }
+.cat-anuncio { display: grid; gap: 4px; overflow: hidden; }
+.cat-anuncio__foto { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: var(--radio); background: var(--color-borde); margin-bottom: 4px; }
+.cat-anuncio__cuando { color: var(--color-principal); font-weight: 600; }
+.cat-anuncio--evento { border-left: 4px solid var(--color-principal); }

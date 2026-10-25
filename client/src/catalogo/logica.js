@@ -255,3 +255,44 @@ export function estadoPromocion(p, hoy) {
 
 /** Las vigentes primero (conservan el orden del servicio dentro de cada grupo). */
 export const ordenarPromociones = (lista) => [...(lista ?? [])].sort((a, b) => Number(b.vigenteAhora === true) - Number(a.vigenteAhora === true));
+
+// ---------- eventos y publicidad en la carta (5.49) ----------
+// El servicio manda los anuncios ya filtrados y ordenados (GET .../anuncios); aquí se escriben en palabras.
+
+const diaDeSemana = (f) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(f ?? ""));
+  return m ? new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))).getUTCDay() : null;
+};
+const diasEntre = (desde, hasta) => {
+  const a = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(desde ?? ""));
+  const b = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(hasta ?? ""));
+  return a && b ? Math.round((Date.UTC(+b[1], +b[2] - 1, +b[3]) - Date.UTC(+a[1], +a[2] - 1, +a[3])) / 86_400_000) : null;
+};
+
+/** «Hoy», «Mañana» o «Sábado 7 nov» (el año solo si no es el de hoy). `hoy` es la fecha de la empresa. */
+export function textoDiaEvento(fecha, hoy) {
+  const faltan = diasEntre(hoy, fecha);
+  if (faltan === 0) return "Hoy";
+  if (faltan === 1) return "Mañana";
+  const dia = diaDeSemana(fecha);
+  if (dia === null) return String(fecha ?? "");
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(fecha);
+  const sinAnio = `${mayuscula(DIAS_ES[dia])} ${Number(m[3])} ${MESES_ES[Number(m[2]) - 1]}`;
+  return String(hoy ?? "").slice(0, 4) === m[1] ? sinAnio : `${sinAnio} ${m[1]}`;
+}
+
+/** «Sábado 7 nov · 21:00 · Terraza». */
+export function textoEvento(e, hoy) {
+  return [`${textoDiaEvento(e?.fecha, hoy)} · ${e?.hora ?? ""}`.replace(/ · $/, ""), e?.lugar].filter(Boolean).join(" · ");
+}
+
+/** Hasta cuándo es válida una publicidad: «Hasta el 30 nov 2026», «Desde el 1 nov 2026» o null si siempre. */
+export function textoVigenciaAnuncio(a) {
+  const v = a?.vigencia;
+  if (v?.desde && v?.hasta) return `Del ${textoFecha(v.desde)} al ${textoFecha(v.hasta)}`;
+  if (v?.hasta) return `Hasta el ${textoFecha(v.hasta)}`;
+  if (v?.desde) return `Desde el ${textoFecha(v.desde)}`;
+  return null;
+}
+
+export const hayAnuncios = (datos) => (datos?.eventos?.length ?? 0) + (datos?.publicidad?.length ?? 0) > 0;
