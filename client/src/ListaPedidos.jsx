@@ -12,6 +12,7 @@ import {
   permite,
   resumenItems,
 } from "./pedidos.js";
+import { formatoFechaHora } from "./recibos.js";
 
 const REFRESCO_MS = 15000;
 
@@ -127,7 +128,15 @@ export default function ListaPedidos({ permisos, alCocina, alAbrir, alCrear }) {
                     <span className={`rs-estado rs-estado--${c.estado}`}>{ESTADOS_PEDIDO[c.estado] ?? c.estado}</span>
                   </span>
                   <span className="rs-tarjeta__fila">
-                    <small>{c.code} · {CANALES[c.canal] ?? c.canal}</small>
+                    <small>
+                      {c.code} · {CANALES[c.canal] ?? c.canal}
+                      {formatoFechaHora(c.creadoTs) && (
+                        <>
+                          {" · "}
+                          <time dateTime={c.creadoTs}>{formatoFechaHora(c.creadoTs)}</time>
+                        </>
+                      )}
+                    </small>
                     <span className="rs-num">{formatoDinero(c.total, c.moneda)}</span>
                   </span>
                 </button>

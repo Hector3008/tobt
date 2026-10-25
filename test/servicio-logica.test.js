@@ -717,6 +717,20 @@ describe("servicio: pedidos y ítems (núcleo falso)", () => {
       assert.deepEqual((await svc.pedidos.listar({ empresaId: E, actor: MESERO, estado: ["pagado"] })), []);
     });
 
+    it("cada pedido trae la fecha en que se creó, abierto o cerrado, en la lista y en el detalle", async () => {
+      nuevo();
+      const c = await abrir([{ codigo: "CAFE-1" }]);
+      const [ab] = await svc.pedidos.listar({ empresaId: E, actor: MESERO, estado: ["abierto"] });
+      assert.match(ab.creadoTs, /^2026-10-1\d/);
+      assert.ok(Number.isFinite(Date.parse(ab.creadoTs)));
+      await svc.items.marcarLista(m(COCINA, "DOC_ITEM-0000001"));
+      await svc.items.entregar(m(MESERO, "DOC_ITEM-0000001"));
+      await svc.pedidos.cobrar(m(CAJERO, c.code));
+      const [pa] = await svc.pedidos.listar({ empresaId: E, actor: MESERO, estado: ["pagado"] });
+      assert.equal(pa.creadoTs, ab.creadoTs, "la fecha es la de creación, no cambia al pagar");
+      assert.equal((await svc.pedidos.obtener({ empresaId: E, actor: MESERO, code: c.code })).creadoTs, ab.creadoTs);
+    });
+
     it("los cerrados no cargan ítems y muestran el total guardado", async () => {
       nuevo();
       const c = await abrir([{ codigo: "CAFE-1" }]);

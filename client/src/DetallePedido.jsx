@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, mensajeDeError } from "./api.js";
 import SelectorCliente from "./SelectorCliente.jsx";
 import Recibo from "./Recibo.jsx";
-import { METODOS_PAGO, PAGO_INICIAL, avisoRecibo, cuerpoPago, validarPagoForm } from "./recibos.js";
+import { METODOS_PAGO, PAGO_INICIAL, avisoRecibo, cuerpoPago, formatoFechaHora, validarPagoForm } from "./recibos.js";
 import {
   CANALES,
   ESTADOS_PEDIDO,
@@ -226,6 +226,7 @@ export default function DetallePedido({ code, permisos, alVolver, alPedirMas, av
 
       <dl className="rs-datos">
         <Fila etiqueta="Pedido">{c.code}</Fila>
+        {formatoFechaHora(c.creadoTs) && <Fila etiqueta="Fecha">{formatoFechaHora(c.creadoTs)}</Fila>}
         <Fila etiqueta="Canal">{CANALES[doc.canal] ?? doc.canal}</Fila>
         {doc.entrega && (
           <>
