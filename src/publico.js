@@ -1,6 +1,5 @@
 import { ErrorPedido } from "./errores.js";
 import { ErrorCatalogo, marcaPublica } from "core";
-import { resenasDe } from "./resenas-demo.js";
 
 // Vista pública de la carta (sin sesión). La empresa se identifica por su `slug` (arquitectura 5.13: los pedidos
 // por QR serán una ruta pública con la empresa por slug). Solo se expone lo que un cliente puede ver:
@@ -82,7 +81,24 @@ export function crearPublico(core) {
     };
   }
 
-  /** Un plato (ítem activo) con descripción y foto opcionales, y sus reseñas (de ejemplo, solo texto). */
+  /**
+   * Las reseñas visibles de un plato para cualquiera (5.62): total, promedio y las más recientes, con el autor como
+   * «María P.». Es la misma para todos (la lee la caché pública), así que no lleva nada del que mira: `mia` se quita.
+   * Con un núcleo sin reseñas o si falla la lectura, el plato sale igual sin reseñas.
+   */
+  async function resenasPublicas({ empresaId, codigo }) {
+    const vacio = { total: 0, promedio: null, resenas: [] };
+    if (typeof core.resenas?.deItem !== "function") return vacio;
+    try {
+      const r = await core.resenas.deItem({ empresaId, itemCodigo: codigo });
+      return { total: r.total, promedio: r.promedio, resenas: r.resenas.map(({ id, autor, estrellas, texto, ts }) => ({ id, autor, estrellas, texto, ts })) };
+    } catch (err) {
+      console.error("[tobt] no se pudieron leer las reseñas:", err?.message ?? err);
+      return vacio;
+    }
+  }
+
+  /** Un plato (ítem activo) con descripción y foto opcionales, y sus reseñas reales (solo estrellas y texto). */
   async function plato({ slug, codigo }) {
     const e = await empresaPorSlug(slug);
     let i;
@@ -105,7 +121,7 @@ export function crearPublico(core) {
         descripcion: textoONulo(a.DESCRIPCION),
         imagen: urlImagenSegura(a.IMAGEN),
       },
-      resenas: resenasDe(),
+      resenas: await resenasPublicas({ empresaId: e._id, codigo: i.codigo }),
     };
   }
 

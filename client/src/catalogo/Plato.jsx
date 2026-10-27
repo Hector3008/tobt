@@ -1,18 +1,9 @@
 import { useEffect, useState } from "react";
 import { api } from "./api.js";
-import { estrellasLlenas, formatoFecha, formatoNota, formatoPrecio } from "./logica.js";
+import { formatoPrecio } from "./logica.js";
+import Resenas from "./Resenas.jsx";
 
-function Estrellas({ n }) {
-  const llenas = estrellasLlenas(n);
-  return (
-    <span className="est-par" role="img" aria-label={`${llenas} de 5 estrellas`}>
-      <span className="est">{"★".repeat(llenas)}</span>
-      <span className="est-off">{"★".repeat(5 - llenas)}</span>
-    </span>
-  );
-}
-
-// Tarjeta de detalle de un plato: foto opcional, descripción y reseñas (solo texto y estrellas).
+// Tarjeta de detalle de un plato: foto opcional, descripción y reseñas reales (solo texto y estrellas, 5.62).
 export default function Plato({ slug, codigo, onVolver }) {
   const [datos, setDatos] = useState(null);
   const [error, setError] = useState(null);
@@ -80,29 +71,7 @@ export default function Plato({ slug, codigo, onVolver }) {
         {plato.descripcion && <p className="det-desc">{plato.descripcion}</p>}
       </div>
 
-      {resenas?.total > 0 && (
-        <section className="det-resenas" aria-label="Reseñas">
-          <h2 className="rs-subtitulo">Reseñas</h2>
-          <div className="det-resumen">
-            <span className="det-nota">{formatoNota(resenas.promedio)}</span>
-            <div>
-              <Estrellas n={resenas.promedio} />
-              <small>{resenas.total} {resenas.total === 1 ? "reseña" : "reseñas"}</small>
-            </div>
-          </div>
-          {resenas.resenas.map((r, i) => (
-            <article key={i} className="res">
-              <div className="res-cab">
-                <strong>{r.autor}</strong>
-                <small>{formatoFecha(r.ts)}</small>
-              </div>
-              <Estrellas n={r.estrellas} />
-              <p>{r.texto}</p>
-            </article>
-          ))}
-          {resenas.demo && <small className="cat-demo">Reseñas de ejemplo: aún no son opiniones reales.</small>}
-        </section>
-      )}
+      <Resenas slug={slug} codigo={plato.codigo} inicial={resenas} />
     </main>
   );
 }

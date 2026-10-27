@@ -5,7 +5,6 @@ import express from "express";
 import { createRouter } from "../src/index.js";
 import { ErrorCatalogo } from "core";
 import { agruparPorCategoria, crearPublico, urlImagenSegura } from "../src/publico.js";
-import { resenasDe } from "../src/resenas-demo.js";
 import { limitadorPorIp, paginaCatalogo } from "../src/publico-http.js";
 import { slugDesdeUbicacion, formatoPrecio, filtrarCarta, totalItems, formatoPuntos, rutaDesdeHash, hashPlato, estrellasLlenas, formatoNota, validarRegistro, cuerpoRegistro, textoMovimiento, faltanPuntos, formatoCodigoVale, agruparVales, textoVence, textoAvance, textoFaltan, porcentajeReto, normalizarCodigoReferido, validarCodigoReferido, codigoDeEnlace, enlaceInvitacion, textoPremioReferidos, ESTADO_REFERIDO, textoFecha, textoDias, textoCuando, textoRegla, estadoPromocion, ordenarPromociones, textoDiaEvento, textoEvento, textoVigenciaAnuncio, hayAnuncios, clientIdGoogle, cuerpoGoogle, URL_SCRIPT_GOOGLE, validarNombreCuenta, MAX_NOMBRE } from "../client/src/catalogo/logica.js";
 
@@ -31,6 +30,18 @@ function nucleoFalso() {
     llamadas,
     documentos: { registrarTipo() {} },
     clientes: {},
+    resenas: {
+      async deItem({ empresaId, itemCodigo }) {
+        assert.equal(empresaId, "e1");
+        return {
+          total: 2, promedio: 4.5, mia: null,
+          resenas: [
+            { id: "r2", autor: "Diego", estrellas: 4, texto: null, ts: "2026-10-21T10:00:00.000Z", mia: false, clienteId: "no-debe-salir", itemCodigo },
+            { id: "r1", autor: "María P.", estrellas: 5, texto: "Muy rico", ts: "2026-10-20T10:00:00.000Z", mia: false },
+          ],
+        };
+      },
+    },
     catalogo: {
       async listar(args) {
         llamadas.push(args);
@@ -167,14 +178,31 @@ describe("servicio público: detalle del plato", () => {
       assert.equal(urlImagenSegura(v), null, String(v).slice(0, 30));
   });
 
-  it("las reseñas son de ejemplo, solo texto y estrellas, y el promedio cuadra", async () => {
+  it("las reseñas del plato son las reales (5.62): sin marca de ejemplo, sin id de cliente ni `mia`, y no se cuela nada más", async () => {
     const { resenas } = await publico.plato({ slug: "cafe-central", codigo: "CAF-1" });
-    assert.equal(resenas.demo, true);
-    assert.equal(resenas.total, resenas.resenas.length);
-    assert.equal(resenas.promedio, Math.round((resenas.resenas.reduce((n, r) => n + r.estrellas, 0) / resenas.total) * 10) / 10);
-    for (const r of resenas.resenas) assert.deepEqual(Object.keys(r).sort(), ["autor", "estrellas", "texto", "ts"], "sin imágenes ni videos");
-    resenas.resenas[0].texto = "cambiado";
-    assert.notEqual(resenasDe().resenas[0].texto, "cambiado");
+    assert.equal(resenas.demo, undefined);
+    assert.equal(resenas.total, 2);
+    assert.equal(resenas.promedio, 4.5);
+    assert.deepEqual(resenas.resenas.map((r) => r.autor), ["Diego", "María P."]);
+    for (const r of resenas.resenas) assert.deepEqual(Object.keys(r).sort(), ["autor", "estrellas", "id", "texto", "ts"], "sin imágenes ni videos ni datos del cliente");
+  });
+
+  it("sin reseñas o con un núcleo sin el módulo (o que falla), el plato sale igual con la lista vacía", async () => {
+    const vacio = { total: 0, promedio: null, resenas: [] };
+    for (const deItem of [async () => ({ total: 0, promedio: null, resenas: [] }), async () => { throw new Error("se cayó"); }]) {
+      const base = nucleoFalso();
+      const p = crearPublico({ ...base, resenas: { deItem } });
+      const silencio = console.error;
+      console.error = () => {};
+      try {
+        assert.deepEqual((await p.plato({ slug: "cafe-central", codigo: "CAF-1" })).resenas, vacio);
+      } finally {
+        console.error = silencio;
+      }
+    }
+    const { resenas: ra, plato } = await crearPublico({ ...nucleoFalso(), resenas: undefined }).plato({ slug: "cafe-central", codigo: "CAF-1" });
+    assert.deepEqual(ra, vacio);
+    assert.equal(plato.codigo, "CAF-1");
   });
 
   it("404 con el mismo mensaje: plato inexistente, desactivado, código inválido o empresa inválida", async () => {
@@ -736,5 +764,36 @@ describe("entrar con Google en la carta", () => {
   });
   it("el script de Google viene de accounts.google.com por https", () => {
     assert.equal(URL_SCRIPT_GOOGLE, "https://accounts.google.com/gsi/client");
+  });
+});
+
+describe("reseñas en la carta: lógica del formulario (5.62)", async () => {
+  const { validarResenaForm, cuerpoResena, textoRestante, modoResenar, MAX_TEXTO_RESENA } = await import("../client/src/catalogo/logica.js");
+
+  it("validarResenaForm: estrellas enteras de 1 a 5 y texto hasta el tope", () => {
+    assert.equal(validarResenaForm({ estrellas: 5, texto: "" }), null);
+    assert.equal(validarResenaForm({ estrellas: 1 }), null);
+    for (const e of [0, 6, 2.5, "4", null, undefined]) assert.match(validarResenaForm({ estrellas: e }), /estrellas/);
+    assert.equal(validarResenaForm({ estrellas: 3, texto: "x".repeat(MAX_TEXTO_RESENA) }), null);
+    assert.match(validarResenaForm({ estrellas: 3, texto: "x".repeat(MAX_TEXTO_RESENA + 1) }), /500/);
+    assert.match(validarResenaForm(), /estrellas/);
+  });
+  it("cuerpoResena: recorta el texto y el vacío es null", () => {
+    assert.deepEqual(cuerpoResena({ estrellas: 4, texto: "  rico  " }), { estrellas: 4, texto: "rico" });
+    assert.deepEqual(cuerpoResena({ estrellas: 4, texto: "   " }), { estrellas: 4, texto: null });
+    assert.deepEqual(cuerpoResena({ estrellas: 4 }), { estrellas: 4, texto: null });
+  });
+  it("textoRestante", () => {
+    assert.equal(textoRestante(""), "500 caracteres restantes");
+    assert.equal(textoRestante("x".repeat(499)), "1 carácter restante");
+    assert.equal(textoRestante("x".repeat(503)), "Te pasaste por 3");
+  });
+  it("modoResenar: qué se le ofrece a quien mira", () => {
+    assert.equal(modoResenar(null), "cargando");
+    assert.equal(modoResenar({ sesion: false }), "entrar");
+    assert.equal(modoResenar({ puedeResenar: false, mia: null }), "pagar");
+    assert.equal(modoResenar({ puedeResenar: true, mia: null }), "escribir");
+    assert.equal(modoResenar({ puedeResenar: true, mia: { estrellas: 5, oculta: false } }), "editar");
+    assert.equal(modoResenar({ puedeResenar: true, mia: { estrellas: 1, oculta: true } }), "oculta");
   });
 });

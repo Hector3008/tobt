@@ -9,6 +9,8 @@ import { montarRutas } from "./http.js";
 import { crearPublico, CAMPOS_PLATO } from "./publico.js";
 import { montarRutasPublicas } from "./publico-http.js";
 import { crearManejadoresVales } from "./publico-vales.js";
+import { crearManejadoresResenas } from "./publico-resenas.js";
+import { crearFuenteConsumo } from "./consumo-resenas.js";
 import { TIPO_ITEM, TIPO_PEDIDO, TIPO_RECIBO } from "./tipos.js";
 import { extraerConsumo } from "./fuente-puntos.js";
 
@@ -61,6 +63,10 @@ export function createRouter({ core, dist = DIST_POR_DEFECTO } = {}) {
     ? crearReportes({ conEmpresa, permite, modelos: core.modelos })
     : null;
 
+  // Reseñas de platos (5.62): el núcleo pregunta aquí si un cliente pagó el plato. Un núcleo anterior no las trae.
+  const pagoElPlato = core.resenas && core.modelos?.Documento ? crearFuenteConsumo({ conEmpresa, modelos: core.modelos }) : null;
+  if (pagoElPlato) core.resenas.definirFuenteConsumo(pagoElPlato);
+
   const router = express.Router();
   router.use(express.json());
   montarRutas(router, core, servicio);
@@ -73,6 +79,7 @@ export function createRouter({ core, dist = DIST_POR_DEFECTO } = {}) {
     undefined,
     core.cuentasCliente?.manejadores({ empresaDe: publico.empresaDe }) ?? null,
     core.cuentasCliente && core.fidelizacion?.tickets ? crearManejadoresVales(core, publico.empresaDe) : null,
+    core.cuentasCliente && pagoElPlato ? crearManejadoresResenas(core, publico.empresaDe, { pagoElPlato }) : null,
   );
   router.use(
     express.static(dist, {

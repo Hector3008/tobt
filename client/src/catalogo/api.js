@@ -58,5 +58,10 @@ export const api = {
   cancelarVale: (slug, codigo) => pedir(`tobt/publico/${enc(slug)}/cuenta/vales/${enc(codigo)}/cancelar`, { metodo: "POST", cuerpo: {}, cuenta: true }),
   // Editar mi nombre (5.53): devuelve la cuenta ya con el nombre nuevo
   cambiarNombre: (slug, nombre) => pedir(`tobt/publico/${enc(slug)}/cuenta/nombre`, { metodo: "PUT", cuerpo: { nombre }, cuenta: true }),
+  // Reseñas de platos (5.62): la lista fresca con mi reseña y si puedo reseñar; crear o editar; borrar; reportar la de otro
+  resenas: (slug, codigo) => pedir(`tobt/publico/${enc(slug)}/cuenta/resenas/${enc(codigo)}`, { cuenta: true }),
+  guardarResena: (slug, codigo, cuerpo) => pedir(`tobt/publico/${enc(slug)}/cuenta/resenas/${enc(codigo)}`, { metodo: "PUT", cuerpo, cuenta: true }),
+  borrarResena: (slug, codigo) => pedir(`tobt/publico/${enc(slug)}/cuenta/resenas/${enc(codigo)}`, { metodo: "DELETE", cuenta: true }),
+  reportarResena: (slug, resenaId) => pedir(`tobt/publico/${enc(slug)}/cuenta/resenas/${enc(resenaId)}/reportar`, { metodo: "POST", cuerpo: {}, cuenta: true }),
   consentimiento: (slug, otorgado) => pedir(`tobt/publico/${enc(slug)}/cuenta/consentimiento`, { metodo: "PUT", cuerpo: { otorgado }, cuenta: true }),
 };

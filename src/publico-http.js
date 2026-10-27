@@ -7,7 +7,7 @@ import { ErrorPedido } from "./errores.js";
  *   GET /publico/:empresa/carta         { empresa: { nombre, slug, moneda, marca }, categorias: [{ nombre, items: [{ codigo, nombre, precio, agotado }] }] }
  *   GET /publico/:empresa/promociones   { empresa, hoy, promociones: [{ nombre, tipo, …regla, vigenteAhora }] }   (5.43)
  *   GET /publico/:empresa/anuncios      { empresa, hoy, eventos: [{ titulo, fecha, hora, lugar, imagen, … }], publicidad: [...] }   (5.49)
- *   GET /publico/:empresa/plato/:codigo  { empresa, plato: { codigo, nombre, categoria, precio, agotado, descripcion, imagen }, resenas }
+ *   GET /publico/:empresa/plato/:codigo  { empresa, plato: { codigo, nombre, categoria, precio, agotado, descripcion, imagen }, resenas: { total, promedio, resenas: [{ id, autor, estrellas, texto, ts }] } }   (reseñas reales, 5.62)
  *
  * Cuenta del cliente final (con sesión propia `cs_<slug>`; los maneja core.cuentasCliente, ver core/docs/cuentas-cliente.md):
  *   GET  /publico/:empresa/cliente                  { sesion:false } | { sesion:true, cliente, puntos }
@@ -21,6 +21,10 @@ import { ErrorPedido } from "./errores.js";
  *   GET  /publico/:empresa/cuenta/vales             { beneficios, vales }          (publico-vales.js, 5.30)
  *   POST /publico/:empresa/cuenta/vales             { beneficioId }                canjea puntos por un vale
  *   POST /publico/:empresa/cuenta/vales/:codigo/cancelar                           devuelve los puntos
+ *   GET  /publico/:empresa/cuenta/resenas/:codigo   { puedeResenar, mia, total, promedio, resenas }   (publico-resenas.js, 5.62)
+ *   PUT  /publico/:empresa/cuenta/resenas/:codigo   { estrellas, texto? }      crea o edita la reseña propia (solo de un plato pagado)
+ *   DELETE /publico/:empresa/cuenta/resenas/:codigo                            borra la propia
+ *   POST /publico/:empresa/cuenta/resenas/:resenaId/reportar                   reporta la de otro cliente
  *
  * Solo lectura (GET), así que no necesitan `x-requested-with`. Como no hay sesión que limite el abuso, llevan
  * un límite de frecuencia por IP, en memoria (como los de auth: se reinicia con el servidor y no se comparte
@@ -62,7 +66,7 @@ export function paginaCatalogo(html, baseUrl) {
   return html.replace("<head>", `<head>\n    <base href="${escaparAttr(base)}" />`);
 }
 
-export function montarRutasPublicas(router, publico, htmlCatalogo, limitador = limitadorPorIp(), cuentas = null, vales = null) {
+export function montarRutasPublicas(router, publico, htmlCatalogo, limitador = limitadorPorIp(), cuentas = null, vales = null, resenas = null) {
   const envolver = (fn) => async (req, res, next) => {
     try {
       await fn(req, res);
@@ -134,5 +138,13 @@ export function montarRutasPublicas(router, publico, htmlCatalogo, limitador = l
     router.get("/publico/:empresa/cuenta/vales", limitador, vales.sesion, vales.listar);
     router.post("/publico/:empresa/cuenta/vales", limitador, vales.sesion, vales.emitir);
     router.post("/publico/:empresa/cuenta/vales/:codigo/cancelar", limitador, vales.sesion, vales.cancelar);
+  }
+
+  // Reseñas de platos (5.62): leer las mías, crear o editar, borrar y reportar la de otro, siempre con la sesión del cliente.
+  if (resenas) {
+    router.get("/publico/:empresa/cuenta/resenas/:codigo", limitador, resenas.sesion, resenas.ver);
+    router.put("/publico/:empresa/cuenta/resenas/:codigo", limitador, resenas.sesion, resenas.guardar);
+    router.delete("/publico/:empresa/cuenta/resenas/:codigo", limitador, resenas.sesion, resenas.borrar);
+    router.post("/publico/:empresa/cuenta/resenas/:resenaId/reportar", limitador, resenas.sesion, resenas.reportar);
   }
 }

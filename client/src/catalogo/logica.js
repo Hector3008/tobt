@@ -333,3 +333,35 @@ export function cuerpoGoogle(credencial, { crear = false, quierePuntos = false, 
   }
   return cuerpo;
 }
+
+// ---------- Reseñas de platos (5.62) ----------
+export const MAX_TEXTO_RESENA = 500;
+
+/** Revisa el formulario de reseña (estrellas 1 a 5, texto opcional hasta 500). Devuelve el mensaje de error, o null si está bien. */
+export function validarResenaForm({ estrellas, texto } = {}) {
+  if (!Number.isInteger(estrellas) || estrellas < 1 || estrellas > 5) return "Elige de 1 a 5 estrellas.";
+  if (typeof texto === "string" && texto.trim().length > MAX_TEXTO_RESENA) return `Escribe hasta ${MAX_TEXTO_RESENA} caracteres.`;
+  return null;
+}
+
+/** El cuerpo que se envía: estrellas y texto recortado (vacío = sin texto). */
+export const cuerpoResena = ({ estrellas, texto }) => ({ estrellas, texto: typeof texto === "string" && texto.trim() ? texto.trim() : null });
+
+/** «120 caracteres restantes», «1 carácter restante» o «excedido por 3». */
+export function textoRestante(texto, max = MAX_TEXTO_RESENA) {
+  const n = max - String(texto ?? "").length;
+  if (n < 0) return `Te pasaste por ${-n}`;
+  return n === 1 ? "1 carácter restante" : `${n} caracteres restantes`;
+}
+
+/**
+ * Qué se le dice a quien mira las reseñas de un plato, según su sesión y lo que respondió el servidor.
+ * `estado`: null (aún no se sabe), { sesion: false } o la respuesta de las reseñas con sesión ({ puedeResenar, mia }).
+ * Devuelve "cargando" | "entrar" | "pagar" | "escribir" | "editar" | "oculta".
+ */
+export function modoResenar(estado) {
+  if (!estado) return "cargando";
+  if (estado.sesion === false) return "entrar";
+  if (estado.mia) return estado.mia.oculta ? "oculta" : "editar";
+  return estado.puedeResenar ? "escribir" : "pagar";
+}

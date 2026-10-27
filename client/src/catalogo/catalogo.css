@@ -94,3 +94,19 @@
 .cat-enlace { background: none; border: 0; padding: 0; margin-left: 4px; color: var(--color-principal); font: inherit; text-decoration: underline; cursor: pointer; }
 .cat-enlace:disabled { opacity: 0.6; cursor: default; }
 .cat-nombre { display: grid; gap: 8px; min-width: min(100%, 260px); }
+
+/* Reseñas de platos (5.62) */
+.res-propia { border-color: var(--color-principal); }
+.res-form { display: grid; gap: 12px; background: var(--color-superficie); border: 1px solid var(--color-borde); border-radius: var(--radio); padding: 12px 14px; }
+.res-estrellas { border: 0; margin: 0; padding: 0; display: flex; align-items: center; gap: 2px; }
+.res-estrellas legend { padding: 0; margin-bottom: 4px; font-size: .875rem; color: var(--color-texto-suave); }
+.res-estrella { font-size: 1.75rem; line-height: 1; min-width: 44px; min-height: 44px; border: 0; background: transparent; color: var(--color-borde); cursor: pointer; }
+.res-estrella--on { color: var(--color-secundario); }
+.res-estrella:focus-visible, .res-reportar:focus-visible { outline: 2px solid var(--color-principal); outline-offset: 2px; }
+.res-texto { display: grid; gap: 4px; }
+.res-texto textarea { width: 100%; box-sizing: border-box; font: inherit; resize: vertical; }
+.res-texto small, .res-nota { color: var(--color-texto-suave); font-size: .875rem; margin: 0; }
+.res-acciones { display: flex; flex-wrap: wrap; gap: 8px; }
+.res-aviso { margin: 0; color: var(--color-principal); font-weight: 600; }
+.res-reportar { justify-self: start; border: 0; background: transparent; padding: 4px 0; font: inherit; font-size: .8125rem; color: var(--color-texto-suave); text-decoration: underline; cursor: pointer; }
+.res-reportar:disabled { text-decoration: none; cursor: default; }
