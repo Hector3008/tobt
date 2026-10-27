@@ -83,6 +83,7 @@ export function agregarDelCatalogo(lineas, item) {
       precio: item.precio ?? null,
       precioCatalogo: item.precio ?? null,
       modificado: false,
+      agotado: item.agotado === true, // cocina lo marcó agotado (5.60): es un aviso, se puede pedir igual
       cantidad: 1,
       notas: "",
     },
@@ -477,6 +478,37 @@ export function avisoPromociones(respuesta) {
   return respuesta?.promocionesError
     ? "Se guardó el cambio, pero no se pudieron recalcular las promociones. Revisa los descuentos antes de cobrar."
     : "";
+}
+
+// ---------- platos agotados (5.60) ----------
+
+/** Quien tiene `catalogo:disponibilidad` (cocina) puede marcar platos como agotados. */
+export const puedeVerDisponibilidad = (permisos) => permite(permisos, "catalogo:disponibilidad");
+
+/** Cuántas líneas del pedido que se está armando son de platos que cocina marcó como agotados. */
+export const lineasAgotadas = (lineas) => (Array.isArray(lineas) ? lineas : []).filter((l) => !l.libre && l.agotado === true);
+
+/**
+ * Aviso tras enviar un pedido (o pedir más) con platos agotados: el servidor los lista en `agotados` (pasa también si
+ * la lista del mesero se había quedado vieja). El pedido ya se creó: es solo para avisar al cliente. Vacío si no hay.
+ */
+export function avisoAgotados(respuesta) {
+  const lista = Array.isArray(respuesta?.agotados) ? respuesta.agotados : [];
+  if (!lista.length) return "";
+  const nombres = lista.map((a) => a?.nombre || a?.codigo).filter(Boolean).join(", ");
+  return lista.length === 1
+    ? `Cocina marcó como agotado: ${nombres}. El pedido se tomó igual; confirma con cocina o avisa al cliente.`
+    : `Cocina marcó como agotados: ${nombres}. El pedido se tomó igual; confirma con cocina o avisa al cliente.`;
+}
+
+/** Todos los avisos de una respuesta del servidor (promociones y agotados) en un solo texto; vacío si no hay ninguno. */
+export const avisoRespuesta = (respuesta) => [avisoPromociones(respuesta), avisoAgotados(respuesta)].filter(Boolean).join(" ");
+
+/** «Agotado hace 2 h 5 min», o solo «Agotado» si no hay hora. */
+export function textoAgotado(item, ahora = Date.now()) {
+  if (!item?.agotado) return "";
+  const t = item.agotadoTs ? haceCuanto(item.agotadoTs, ahora) : "";
+  return t ? `Agotado ${t}` : "Agotado";
 }
 
 /** «Vale K7M2QX: −6,50 (Café gratis) · antes 13,00», o null si el ítem no tiene vale. */

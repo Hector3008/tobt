@@ -18,7 +18,7 @@ const REFRESCO_MS = 15000;
 
 // Los pedidos: cada una agrupa los ítems (ítems) de una mesa o persona hasta que se paga toda. Cada
 // ítem se mueve solo; aquí se ve en qué va cada uno y se puede entregar el que ya está listo sin entrar.
-export default function ListaPedidos({ permisos, alCocina, alAbrir, alCrear }) {
+export default function ListaPedidos({ permisos, alCocina, alDisponibilidad = null, alAbrir, alCrear }) {
   const [filtro, setFiltro] = useState("abierto");
   const [pedidos, setPedidos] = useState(null);
   const [error, setError] = useState("");
@@ -88,6 +88,7 @@ export default function ListaPedidos({ permisos, alCocina, alAbrir, alCrear }) {
           {alCocina && permite(permisos, "estacion:cocina") && (
             <button type="button" className="rs-btn" onClick={alCocina}>Cocina</button>
           )}
+          {alDisponibilidad && <button type="button" className="rs-btn" onClick={alDisponibilidad}>Platos agotados</button>}
           {permite(permisos, "documento:crear") && (
             <button type="button" className="rs-btn rs-btn--primario" onClick={alCrear}>Nuevo pedido</button>
           )}

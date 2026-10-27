@@ -76,6 +76,7 @@ export default function Plato({ slug, codigo, onVolver }) {
           <h1>{plato.nombre}</h1>
           <span className="det-precio">{formatoPrecio(plato.precio, empresa.moneda)}</span>
         </div>
+        {plato.agotado === true && <p><span className="rs-etiqueta-agotado" style={{ marginLeft: 0 }}>Agotado por hoy</span></p>}
         {plato.descripcion && <p className="det-desc">{plato.descripcion}</p>}
       </div>
 

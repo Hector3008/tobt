@@ -294,6 +294,24 @@ export function crearServicio(core) {
     }
   }
 
+  // ---------- platos agotados (5.60) ----------
+  //
+  // Cocina marca en el catálogo lo que no hay hoy. Es un AVISO, nunca un bloqueo: el pedido se crea igual y la respuesta
+  // trae `agotados: [{ codigo, nombre }]` para que el mesero avise al cliente (cubre la lista que se quedó vieja entre
+  // que se buscó el plato y que se envió el pedido). Nunca lanza: si no se pudo consultar, simplemente no avisa.
+  // Sin `catalogo.agotadosDe` (pruebas, un núcleo anterior) no hace nada.
+  async function avisoAgotados({ empresaId, items }) {
+    if (typeof catalogo.agotadosDe !== "function") return {};
+    try {
+      const codigos = items.map((i) => i.item).filter((x) => typeof x === "string");
+      const agotados = codigos.length ? await catalogo.agotadosDe({ empresaId, codigos }) : [];
+      return agotados.length ? { agotados } : {};
+    } catch (e) {
+      console.error("tobt: no se pudo consultar qué platos están agotados", e);
+      return {};
+    }
+  }
+
   // ---------- pedidos ----------
 
   // Abre el pedido con su primer ítem: el pedido nace al pedir el primer ítem.
@@ -302,6 +320,7 @@ export function crearServicio(core) {
     const p = validarCreacion(cuerpo);
     return await conEmpresa(empresaId, async () => {
       const preparados = await prepararItems({ empresaId, actor, items: p.items });
+      const avisos = await avisoAgotados({ empresaId, items: p.items });
       const cliente = p.clienteId
         ? await clientes.instantanea({ empresaId, clienteId: p.clienteId, campos: ["nombre", "telefono"] })
         : null;
@@ -314,7 +333,7 @@ export function crearServicio(core) {
       });
       await crearItems({ actor, pedidoCode: pedido.code, moneda, preparados });
       const promo = await recalcularPromociones({ empresaId, actor, pedidoCode: pedido.code });
-      return { ...(await completoPedido(await cargarPedido(pedido.code))), ...promo };
+      return { ...(await completoPedido(await cargarPedido(pedido.code))), ...promo, ...avisos };
     });
   }
 
@@ -325,9 +344,10 @@ export function crearServicio(core) {
       const pedido = await cargarPedido(code);
       if (pedido.estado !== "abierto") throw new ErrorPedido("ESTADO_INVALIDO", "el pedido ya no está abierto");
       const preparados = await prepararItems({ empresaId, actor, items });
+      const avisos = await avisoAgotados({ empresaId, items });
       await crearItems({ actor, pedidoCode: code, moneda: pedido.payload.doc.moneda ?? null, preparados });
       const promo = await recalcularPromociones({ empresaId, actor, pedidoCode: code });
-      return { ...(await completoPedido(await cargarPedido(code))), ...promo };
+      return { ...(await completoPedido(await cargarPedido(code))), ...promo, ...avisos };
     });
   }
 

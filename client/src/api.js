@@ -127,6 +127,15 @@ export const api = {
   // Cuenta del cliente: devuelve la contraseña temporal UNA vez (no se guarda ni se vuelve a mostrar).
   crearCuenta: (clienteId) => pedir("POST", `clientes/${enc(clienteId)}/cuenta`, { generarPassword: true }),
 
+  // Disponibilidad de los platos (5.60, catalogo:disponibilidad): la lista de cocina (sin precios) y marcar agotado o disponible.
+  disponibilidad: {
+    listar: async ({ q = "", soloAgotados = false } = {}) => {
+      const partes = [q.trim() ? `q=${enc(q.trim())}` : "", soloAgotados ? "agotados=1" : "", "limite=200"].filter(Boolean);
+      return lista(await pedir("GET", `catalogo/disponibilidad?${partes.join("&")}`), "items");
+    },
+    marcar: (itemId, agotado) => pedir("PUT", `catalogo/${enc(itemId)}/disponibilidad`, { agotado }),
+  },
+
   // Búsqueda en el catálogo (catalogo:leer): por comienzo del código o parte del nombre.
   buscarCatalogo: async (q) => {
     const d = await pedir("GET", `catalogo/?q=${enc(q)}&limite=20`);

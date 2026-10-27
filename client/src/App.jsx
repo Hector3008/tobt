@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, ErrorApi, mensajeDeError, urlCarta, urlCuenta } from "./api.js";
-import { avisoPromociones, permite, puedeCambiarPrecio, puedeMarcarListos } from "./pedidos.js";
+import { avisoRespuesta, permite, puedeCambiarPrecio, puedeMarcarListos, puedeVerDisponibilidad } from "./pedidos.js";
 import Cocina from "./Cocina.jsx";
+import Disponibilidad from "./Disponibilidad.jsx";
 import ListaPedidos from "./ListaPedidos.jsx";
 import FormularioPedido from "./FormularioPedido.jsx";
 import DetallePedido from "./DetallePedido.jsx";
@@ -13,8 +14,8 @@ export default function App() {
   const [yo, setYo] = useState(null);
   const [cargando, setCargando] = useState(true);
   const [problema, setProblema] = useState(null); // { texto, irACuenta }
-  // `#cocina` abre la pantalla de cocina (es el enlace de Inicio en `cuenta`)
-  const [vista, setVista] = useState({ tipo: location.hash === "#cocina" ? "cocina" : "lista" });
+  // `#cocina` abre la pantalla de cocina y `#disponibilidad` la de platos agotados (son los enlaces de Inicio en `cuenta`)
+  const [vista, setVista] = useState({ tipo: location.hash === "#cocina" ? "cocina" : location.hash === "#disponibilidad" ? "disponibilidad" : "lista" });
   const [version, setVersion] = useState(0); // fuerza recargar la lista al volver
 
   const cargarYo = useCallback(async () => {
@@ -42,6 +43,7 @@ export default function App() {
 
   const aLista = () => { setVista({ tipo: "lista" }); setVersion((v) => v + 1); history.replaceState(null, "", location.pathname + location.search); };
   const aCocina = () => { setVista({ tipo: "cocina" }); history.replaceState(null, "", "#cocina"); };
+  const aDisponibilidad = () => { setVista({ tipo: "disponibilidad" }); history.replaceState(null, "", "#disponibilidad"); };
 
   if (cargando) return <main className="rs-centrado"><p className="cargando">Cargando…</p></main>;
   if (problema)
@@ -86,11 +88,24 @@ export default function App() {
           key={version}
           permisos={permisos}
           alCocina={aCocina}
+          alDisponibilidad={puedeVerDisponibilidad(permisos) ? aDisponibilidad : null}
           alAbrir={(code) => setVista({ tipo: "detalle", code })}
           alCrear={() => setVista({ tipo: "nuevo" })}
         />
       )}
-      {vista.tipo === "cocina" && <Cocina puedeMarcar={puedeMarcarListos(permisos)} alVolver={aLista} />}
+      {vista.tipo === "cocina" && (
+        <Cocina puedeMarcar={puedeMarcarListos(permisos)} alVolver={aLista} alDisponibilidad={puedeVerDisponibilidad(permisos) ? aDisponibilidad : null} />
+      )}
+      {vista.tipo === "disponibilidad" && (
+        puedeVerDisponibilidad(permisos)
+          ? <Disponibilidad alVolver={aLista} alCocina={permite(permisos, "estacion:cocina") ? aCocina : null} />
+          : (
+            <section className="rs-aviso-pantalla">
+              <p>Tu rol no puede marcar platos como agotados.</p>
+              <button type="button" className="rs-btn" onClick={aLista}>Ver pedidos</button>
+            </section>
+          )
+      )}
       {vista.tipo === "nuevo" && (
         <FormularioPedido
           puedeVerCatalogo={permite(permisos, "catalogo:leer")}
@@ -98,7 +113,7 @@ export default function App() {
           puedeVerClientes={permite(permisos, "cliente:leer")}
           puedeCrearClientes={permite(permisos, "cliente:crear")}
           puedeCuentas={permite(permisos, "cliente:cuenta")}
-          alGuardar={(c) => setVista({ tipo: "detalle", code: c.code, aviso: avisoPromociones(c) })}
+          alGuardar={(c) => setVista({ tipo: "detalle", code: c.code, aviso: avisoRespuesta(c) })}
           alCancelar={aLista}
         />
       )}
@@ -117,7 +132,7 @@ export default function App() {
           pedido={vista.pedido}
           puedeVerCatalogo={permite(permisos, "catalogo:leer")}
           puedeCambiarPrecio={puedeCambiarPrecio(permisos)}
-          alGuardar={(c) => setVista({ tipo: "detalle", code: vista.pedido.code, aviso: avisoPromociones(c) })}
+          alGuardar={(c) => setVista({ tipo: "detalle", code: vista.pedido.code, aviso: avisoRespuesta(c) })}
           alCancelar={() => setVista({ tipo: "detalle", code: vista.pedido.code })}
         />
       )}

@@ -4,10 +4,10 @@ import { ErrorPedido } from "./errores.js";
  * Rutas públicas de tobt (SIN sesión): la carta de una empresa y el cliente que la mira.
  *
  *   GET /catalogo/:empresa              la página (HTML) de la carta; `:empresa` es el slug
- *   GET /publico/:empresa/carta         { empresa: { nombre, slug, moneda, marca }, categorias: [{ nombre, items }] }
+ *   GET /publico/:empresa/carta         { empresa: { nombre, slug, moneda, marca }, categorias: [{ nombre, items: [{ codigo, nombre, precio, agotado }] }] }
  *   GET /publico/:empresa/promociones   { empresa, hoy, promociones: [{ nombre, tipo, …regla, vigenteAhora }] }   (5.43)
  *   GET /publico/:empresa/anuncios      { empresa, hoy, eventos: [{ titulo, fecha, hora, lugar, imagen, … }], publicidad: [...] }   (5.49)
- *   GET /publico/:empresa/plato/:codigo  { empresa, plato: { codigo, nombre, categoria, precio, descripcion, imagen }, resenas }
+ *   GET /publico/:empresa/plato/:codigo  { empresa, plato: { codigo, nombre, categoria, precio, agotado, descripcion, imagen }, resenas }
  *
  * Cuenta del cliente final (con sesión propia `cs_<slug>`; los maneja core.cuentasCliente, ver core/docs/cuentas-cliente.md):
  *   GET  /publico/:empresa/cliente                  { sesion:false } | { sesion:true, cliente, puntos }

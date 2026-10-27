@@ -77,8 +77,8 @@ describe("servicio público: carta", () => {
     assert.deepEqual(c.empresa, { nombre: "Café Central", slug: "cafe-central", moneda: "PEN", marca: null });
     assert.deepEqual(c.categorias.map((x) => x.nombre), ["Bebidas", "Postres", "Otros"]);
     assert.deepEqual(c.categorias[0].items, [
-      { codigo: "CAF-1", nombre: "Café americano", precio: 6.5 },
-      { codigo: "AGU-1", nombre: "Agua", precio: null },
+      { codigo: "CAF-1", nombre: "Café americano", precio: 6.5, agotado: false },
+      { codigo: "AGU-1", nombre: "Agua", precio: null, agotado: false },
     ]);
     assert.ok(!JSON.stringify(c).includes("INTERNO"));
   });
@@ -110,7 +110,24 @@ describe("servicio público: carta", () => {
 
   it("agruparPorCategoria no cambia el orden dentro de cada categoría", () => {
     const g = agruparPorCategoria([{ codigo: "B", nombre: "B", categoria: " X " }, { codigo: "A", nombre: "A", categoria: "X" }]);
-    assert.deepEqual(g, [{ nombre: "X", items: [{ codigo: "B", nombre: "B", precio: null }, { codigo: "A", nombre: "A", precio: null }] }]);
+    assert.deepEqual(g, [{ nombre: "X", items: [{ codigo: "B", nombre: "B", precio: null, agotado: false }, { codigo: "A", nombre: "A", precio: null, agotado: false }] }]);
+  });
+
+  it("un plato agotado (5.60) sigue en la carta, con su etiqueta; solo `agotado: true` cuenta", async () => {
+    const torta = CATALOGO.find((i) => i.codigo === "TOR-1");
+    const cafe = CATALOGO.find((i) => i.codigo === "CAF-1");
+    torta.agotado = true;
+    cafe.agotado = "true"; // un valor raro no se toma por verdadero
+    try {
+      const c = await publico.carta({ slug: "cafe-central" });
+      const todos = c.categorias.flatMap((x) => x.items);
+      assert.deepEqual(todos.filter((i) => i.agotado).map((i) => i.codigo), ["TOR-1"]);
+      assert.equal(todos.length, 4, "no se quita ningún plato de la carta");
+      assert.ok(!JSON.stringify(c).includes("agotadoTs"), "no se publica quién ni cuándo");
+    } finally {
+      delete torta.agotado;
+      delete cafe.agotado;
+    }
   });
 });
 
@@ -119,9 +136,20 @@ describe("servicio público: detalle del plato", () => {
 
   it("trae descripción y foto, y solo esos dos campos de los atributos", async () => {
     const d = await publico.plato({ slug: "cafe-central", codigo: "CAF-1" });
-    assert.deepEqual(d.plato, { codigo: "CAF-1", nombre: "Café americano", categoria: "Bebidas", precio: 6.5, descripcion: "Espresso doble alargado.", imagen: "https://img.example.com/cafe.jpg" });
+    assert.deepEqual(d.plato, { codigo: "CAF-1", nombre: "Café americano", categoria: "Bebidas", precio: 6.5, agotado: false, descripcion: "Espresso doble alargado.", imagen: "https://img.example.com/cafe.jpg" });
     assert.deepEqual(d.empresa, { nombre: "Café Central", slug: "cafe-central", moneda: "PEN" });
     assert.ok(!JSON.stringify(d).includes("INTERNO"));
+  });
+
+  it("el detalle de un plato agotado lo dice (5.60)", async () => {
+    const torta = CATALOGO.find((i) => i.codigo === "TOR-1");
+    torta.agotado = true;
+    try {
+      assert.equal((await publico.plato({ slug: "cafe-central", codigo: "TOR-1" })).plato.agotado, true);
+      assert.equal((await publico.plato({ slug: "cafe-central", codigo: "CAF-1" })).plato.agotado, false);
+    } finally {
+      delete torta.agotado;
+    }
   });
 
   it("foto y descripción son opcionales: sin ellas o con valores inservibles salen null", async () => {

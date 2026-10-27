@@ -136,7 +136,10 @@ export default function Catalogo() {
                     <li key={i.codigo}>
                       <button type="button" className="rs-tarjeta cat-plato" onClick={() => abrirPlato(i.codigo)}>
                         <span className="rs-tarjeta__fila">
-                          <span>{i.nombre}</span>
+                          <span>
+                            {i.nombre}
+                            {i.agotado === true && <span className="rs-etiqueta-agotado">Agotado</span>}
+                          </span>
                           <span className="rs-num">{formatoPrecio(i.precio, empresa.moneda)}</span>
                         </span>
                       </button>

@@ -398,3 +398,38 @@ test("referidos (5.47): el código de quien refiere sale del código escrito o s
   assert.equal(await codigoDeReferente({ tipo: "cliente", id: "c1", nombre: "Ana" }, async (id) => `COD-${id}`), "COD-c1");
   assert.match(textoReferenteAnotado("Ana"), /Ana/);
 });
+
+// ---------- Platos agotados (5.60) ----------
+import * as pedidosFront from "../client/src/pedidos.js";
+
+test("agotados: permiso, líneas, avisos y texto de cocina", () => {
+  const { puedeVerDisponibilidad, lineasAgotadas, avisoAgotados, avisoRespuesta, textoAgotado } = pedidosFront;
+  assert.equal(puedeVerDisponibilidad(["catalogo:disponibilidad"]), true);
+  assert.equal(puedeVerDisponibilidad(["catalogo:*"]), true);
+  assert.equal(puedeVerDisponibilidad(["*"]), true);
+  assert.equal(puedeVerDisponibilidad(["catalogo:leer"]), false);
+  assert.equal(puedeVerDisponibilidad([]), false);
+
+  const lineas = [{ item: "cafe", nombre: "Café", agotado: true }, { item: "te", nombre: "Té" }, { nombre: "Libre", agotado: true, libre: true }];
+  assert.deepEqual(lineasAgotadas(lineas).map((l) => l.nombre), ["Café", "Libre"].filter((n) => n !== "Libre"));
+  assert.deepEqual(lineasAgotadas(null), []);
+
+  assert.equal(avisoAgotados({}), "");
+  assert.equal(avisoAgotados({ agotados: [] }), "");
+  assert.match(avisoAgotados({ agotados: [{ codigo: "cafe", nombre: "Café" }] }), /agotado: Café\./);
+  assert.match(avisoAgotados({ agotados: [{ codigo: "a", nombre: "A" }, { codigo: "b" }] }), /agotados: A, b\./);
+  assert.equal(avisoRespuesta({}), "");
+  assert.match(avisoRespuesta({ agotados: [{ codigo: "x", nombre: "X" }] }), /X/);
+
+  assert.equal(textoAgotado({ agotado: false }), "");
+  assert.equal(textoAgotado({ agotado: true }), "Agotado");
+  const ahora = Date.parse("2026-10-26T12:00:00Z");
+  assert.equal(textoAgotado({ agotado: true, agotadoTs: "2026-10-26T10:00:00Z" }, ahora), "Agotado hace 2 h 0 min");
+});
+
+test("agotados: agregar del catálogo conserva la marca; el libre no la lleva", () => {
+  const l = agregarDelCatalogo([], { codigo: "cafe", nombre: "Café", precio: 100, agotado: true });
+  assert.equal(l[0].agotado, true);
+  assert.equal(agregarDelCatalogo([], { codigo: "te", nombre: "Té", precio: 80 })[0].agotado, false);
+  assert.equal(agregarLibre([], { nombre: "Extra", precio: 10 })[0].agotado, undefined);
+});

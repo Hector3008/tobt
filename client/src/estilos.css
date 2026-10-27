@@ -184,3 +184,15 @@ body { margin: 0; background: var(--color-fondo); color: var(--color-texto); fon
 .pie-legal a:hover { color: var(--color-texto); }
 .pie-legal a:focus-visible { outline: 2px solid var(--color-principal); outline-offset: 2px; border-radius: 2px; }
 @media print { .pie-legal { display: none; } }
+
+/* Platos agotados (5.60): etiqueta, advertencia del mesero y la lista de cocina. Solo variables de diseño. */
+.rs-etiqueta-agotado { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 999px; color: var(--color-error); background: var(--color-error-fondo); font-size: .75rem; font-weight: 600; white-space: nowrap; }
+.rs-aviso-agotado { margin: 12px 0; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--color-error); color: var(--color-error); background: var(--color-error-fondo); font-size: .9375rem; }
+.rs-disp-filtros { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 12px 0; }
+.rs-disp-filtros input[type="search"] { flex: 1 1 220px; min-width: 0; }
+.rs-disp-solo { display: inline-flex; align-items: center; gap: 6px; }
+.rs-disp { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.rs-disp__item { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 10px 12px; border: 1px solid var(--color-borde); border-radius: 10px; background: var(--color-superficie); }
+.rs-disp__item--agotado { border-color: var(--color-error); }
+.rs-disp__nombre { display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.rs-disp__nombre .rs-etiqueta-agotado { margin-left: 0; align-self: flex-start; }

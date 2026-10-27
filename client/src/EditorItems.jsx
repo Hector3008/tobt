@@ -7,6 +7,7 @@ import {
   cambiarCantidad,
   fijarPrecio,
   formatoDinero,
+  lineasAgotadas,
   parsearPrecio,
   totalEstimado,
 } from "./pedidos.js";
@@ -80,6 +81,7 @@ function BuscadorCatalogo({ alElegir }) {
               <button type="button" onClick={() => elegir(it)}>
                 <span>
                   <strong>{it.nombre}</strong> <small>{it.codigo}</small>
+                  {it.agotado === true && <small className="rs-etiqueta-agotado">Agotado hoy</small>}
                 </span>
                 <span className="rs-num">{formatoDinero(it.precio ?? null, null)}</span>
               </button>
@@ -188,6 +190,12 @@ export default function EditorItems({ items, alCambiar, puedeVerCatalogo, puedeC
       )}
       <LineaLibre alAgregar={(x) => lineas((l) => agregarLibre(l, x))} />
 
+      {lineasAgotadas(items).length > 0 && (
+        <p className="rs-aviso-agotado" role="status">
+          Cocina marcó como agotado: {lineasAgotadas(items).map((l) => l.nombre).join(", ")}. Puedes pedirlo igual, pero confirma con cocina antes de prometérselo al cliente.
+        </p>
+      )}
+
       {items.length === 0 ? (
         <p className="rs-vacio">Todavía no hay ítems.</p>
       ) : (
@@ -198,6 +206,7 @@ export default function EditorItems({ items, alCambiar, puedeVerCatalogo, puedeC
                 <span>
                   <strong>{l.nombre}</strong>
                   {l.libre ? <small> · libre</small> : <small> · {l.codigo}</small>}
+                  {l.agotado === true && <small className="rs-etiqueta-agotado">Agotado hoy</small>}
                 </span>
                 <PrecioLinea
                   linea={l}

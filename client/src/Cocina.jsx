@@ -7,7 +7,7 @@ const REFRESCO_MS = 10000;
 // Cocina: una tarjeta por ítem (por ítem), no por pedido. Así se saca primero lo que va antes (el café)
 // y se lleva sin esperar al resto (el sándwich). "Listo" lleva la versión que se ve: si el ítem cambió
 // (por ejemplo, lo anularon), el servidor responde 409 y se recarga.
-export default function Cocina({ puedeMarcar, alVolver }) {
+export default function Cocina({ puedeMarcar, alVolver, alDisponibilidad = null }) {
   const [items, setItems] = useState(null);
   const [error, setError] = useState("");
   const [moviendo, setMoviendo] = useState(() => new Set()); // ítems que se están marcando: cada botón bloquea solo el suyo
@@ -64,6 +64,7 @@ export default function Cocina({ puedeMarcar, alVolver }) {
         <h1 id="t-cocina">Cocina</h1>
         <div className="rs-acciones">
           <button type="button" className="rs-btn" onClick={() => cargar()}>Actualizar</button>
+          {alDisponibilidad && <button type="button" className="rs-btn" onClick={alDisponibilidad}>Platos agotados</button>}
           <button type="button" className="rs-btn" onClick={alVolver}>Ver pedidos</button>
         </div>
       </header>

@@ -165,6 +165,75 @@ describe("servicio: pedidos y ítems (núcleo falso)", () => {
     });
   });
 
+  describe("platos agotados (5.60): el pedido se crea igual y avisa", () => {
+    // El núcleo falso consulta una lista de códigos agotados que cada prueba fija; imita core.catalogo.agotadosDe
+    const conAgotados = (codigos) => {
+      core.catalogo.agotadosDe = async ({ empresaId, codigos: pedidos }) => {
+        assert.equal(empresaId, E);
+        return pedidos.filter((c) => codigos.includes(c.toUpperCase())).map((c) => ({ codigo: c.toUpperCase(), nombre: catalogoNombre[c.toUpperCase()] }));
+      };
+    };
+    const catalogoNombre = { "CAFE-1": "Café", "SAND-1": "Sándwich" };
+
+    it("abrir un pedido con un plato agotado lo crea igual y la respuesta lo avisa", async () => {
+      nuevo();
+      conAgotados(["CAFE-1"]);
+      const c = await abrir([{ codigo: "cafe-1" }, { codigo: "SAND-1" }]);
+      assert.equal(c.estado, "abierto");
+      assert.equal(c.items.length, 2, "se piden los dos: el aviso no bloquea");
+      assert.deepEqual(c.agotados, [{ codigo: "CAFE-1", nombre: "Café" }]);
+    });
+
+    it("pedir más también avisa, solo de lo que se pidió en ese momento", async () => {
+      nuevo();
+      conAgotados(["SAND-1"]);
+      const c = await abrir([{ codigo: "CAFE-1" }]);
+      assert.equal(c.agotados, undefined, "sin agotados no hay campo");
+      const d = await svc.pedidos.agregarItems({ empresaId: E, actor: MESERO, code: c.code, items: [{ codigo: "SAND-1" }] });
+      assert.deepEqual(d.agotados, [{ codigo: "SAND-1", nombre: "Sándwich" }]);
+      assert.equal(d.items.length, 2);
+    });
+
+    it("las líneas libres no se consultan (no tienen código del catálogo)", async () => {
+      nuevo();
+      let pedidos;
+      core.catalogo.agotadosDe = async ({ codigos }) => ((pedidos = codigos), []);
+      await abrir([{ libre: { nombre: "Torta del día", precio: 5 } }, { codigo: "CAFE-1" }]);
+      assert.deepEqual(pedidos, ["CAFE-1"]);
+      core.catalogo.agotadosDe = async () => assert.fail("con solo líneas libres no hay nada que consultar");
+      await abrir([{ libre: { nombre: "Otra", precio: 1 } }]);
+    });
+
+    it("si la consulta falla, el pedido se crea igual y no avisa (nunca bloquea)", async () => {
+      nuevo();
+      core.catalogo.agotadosDe = async () => { throw new Error("la base no responde"); };
+      const silencio = console.error;
+      console.error = () => {};
+      try {
+        const c = await abrir([{ codigo: "CAFE-1" }]);
+        assert.equal(c.estado, "abierto");
+        assert.equal(c.agotados, undefined);
+      } finally {
+        console.error = silencio;
+      }
+    });
+
+    it("con un núcleo sin agotadosDe funciona como antes", async () => {
+      nuevo();
+      assert.equal(core.catalogo.agotadosDe, undefined);
+      const c = await abrir([{ codigo: "CAFE-1" }]);
+      assert.equal(c.agotados, undefined);
+    });
+
+    it("un plato agotado conserva su precio y subtotal normales", async () => {
+      nuevo();
+      conAgotados(["CAFE-1"]);
+      const c = await abrir([{ codigo: "CAFE-1", cantidad: 2 }]);
+      assert.equal(c.items[0].subtotal, 13);
+      assert.equal(c.total, 13);
+    });
+  });
+
   describe("más ítems en el mismo pedido", () => {
     it("se agregan al pedido abierto y el total los suma", async () => {
       nuevo();

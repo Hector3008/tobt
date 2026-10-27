@@ -39,7 +39,8 @@ export function agruparPorCategoria(items) {
   for (const i of items) {
     const nombre = i.categoria?.trim() ? i.categoria.trim() : SIN_CATEGORIA;
     if (!grupos.has(nombre)) grupos.set(nombre, []);
-    grupos.get(nombre).push({ codigo: i.codigo, nombre: i.nombre, precio: i.precio ?? null });
+    // `agotado` (5.60): cocina lo marcó hoy. El plato sigue en la carta, con su etiqueta.
+    grupos.get(nombre).push({ codigo: i.codigo, nombre: i.nombre, precio: i.precio ?? null, agotado: i.agotado === true });
   }
   const lista = [...grupos].map(([nombre, its]) => ({ nombre, items: its }));
   lista.sort((a, b) => {
@@ -100,6 +101,7 @@ export function crearPublico(core) {
         nombre: i.nombre,
         categoria: i.categoria ?? null,
         precio: i.precio ?? null,
+        agotado: i.agotado === true,
         descripcion: textoONulo(a.DESCRIPCION),
         imagen: urlImagenSegura(a.IMAGEN),
       },
