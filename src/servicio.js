@@ -228,9 +228,26 @@ export function crearServicio(core) {
 
   const ESTADOS_CON_PROMOCION = ["en_cocina", "lista", "entregado"];
 
+  // Topes de usos (5.44): si el núcleo los ofrece (`cupos`, `confirmarUsos`, `liberarUsos`), cada recálculo (1) pide los cupos que
+  // le quedan al pedido, (2) evalúa recortado a ellos, (3) reserva los usos — unidades con descuento — de forma atómica y
+  // (4) guarda los ítems; si no se pudo guardar, devuelve los usos como estaban. Lo ya cobrado (o con vale) no cambia: sus
+  // usos son los que guardó, y se descuentan del cupo antes de repartir el resto. El cliente es el del PEDIDO.
+  const hayTopes = () => ["cupos", "confirmarUsos", "liberarUsos"].every((f) => typeof core.promociones?.[f] === "function");
+  const unidadesDe = (promociones, acum = new Map()) => {
+    for (const p of promociones ?? []) acum.set(String(p.id), (acum.get(String(p.id)) ?? 0) + (Number(p.unidades) || 0));
+    return acum;
+  };
+  const restarCupos = (cupos, quitar) => {
+    const salida = {};
+    for (const [id, c] of Object.entries(cupos)) salida[id] = { ...c, max: Math.max(0, c.max - (quitar.get(id) ?? 0)) };
+    return salida;
+  };
+
   async function recalcularUnaVez({ empresaId, actor, pedidoCode }) {
     const pedido = await cargarPedido(pedidoCode);
-    if (pedido.estado !== "abierto") return;
+    if (pedido.estado !== "abierto") return {};
+    const clienteId = pedido.snapshot?.cliente?.clienteId ? String(pedido.snapshot.cliente.clienteId) : null;
+    const topes = hayTopes();
     const docs = (await Promise.all((pedido.payload?.doc?.codigosItems ?? []).map((c) => documentos.obtener({ code: c }))))
       .filter((d) => d && d.tipo === TIPO_ITEM)
       .sort((a, b) => a.code.localeCompare(b.code, undefined, { numeric: true }));
@@ -249,43 +266,91 @@ export function crearServicio(core) {
         ...(d.createdAt ? { ahora: d.createdAt } : {}),
       });
     }
-    if (!lineas.length) return;
-    const r = await core.promociones.evaluar({ empresaId, lineas, ahora: new Date() });
-    const porCode = new Map(r.lineas.map((l) => [l.id, l]));
-    for (const d of docs) {
-      if (!ESTADOS_CON_PROMOCION.includes(d.estado)) continue; // un ítem pagado ya no cambia
-      const l = porCode.get(d.code);
-      if (!l) continue;
-      const x = d.payload.doc;
-      if (x.descuento) continue; // con un vale no recibe promoción
-      const promociones = l.promociones.map((p) => ({ id: String(p.id), nombre: p.nombre, monto: p.monto, unidades: p.unidades }));
-      const base = baseDe(x);
-      const subtotal = (centavosDe(base) - promociones.reduce((n, p) => n + centavosDe(p.monto), 0)) / 100;
-      const igual =
-        x.subtotal === subtotal &&
-        x.subtotalBase === base &&
-        JSON.stringify(promocionesDe(x)) === JSON.stringify(promociones.map((p) => ({ ...p, unidades: p.unidades ?? null })));
-      if (igual) continue;
-      await documentos.nuevaVersion({
-        code: d.code,
-        doc: { ...x, subtotalBase: base, promociones, subtotal },
-        usuarioId: actor.usuarioId,
-        esperaVersion: d.version,
-      });
+    if (!lineas.length) {
+      if (topes) await core.promociones.liberarUsos({ empresaId, referencia: pedidoCode });
+      return {};
     }
+    const congelada = (d) => d.estado === "pagado" || Boolean(d.payload?.doc?.descuento);
+    const porDoc = new Map(docs.map((d) => [d.code, d]));
+    const ahora = new Date();
+    let r;
+    let confirmado = null;
+    for (let intento = 0; ; intento++) {
+      let cupos = {};
+      if (topes) cupos = await core.promociones.cupos({ empresaId, referencia: pedidoCode, clienteId, ahora });
+      r = await core.promociones.evaluar({ empresaId, lineas, ahora, cupos });
+      if (!topes) break;
+      // Los ítems congelados conservan sus promociones: si la evaluación les dio otra cosa, se ajusta el cupo y se evalúa de nuevo.
+      const guardadas = new Map();
+      const evaluadas = new Map();
+      for (const l of r.lineas) {
+        const d = porDoc.get(l.id);
+        if (d && congelada(d)) {
+          unidadesDe(d.payload?.doc?.promociones, guardadas);
+          unidadesDe(l.promociones, evaluadas);
+        }
+      }
+      const ajuste = new Map();
+      for (const [id, n] of guardadas) if (n > (evaluadas.get(id) ?? 0)) ajuste.set(id, n - (evaluadas.get(id) ?? 0));
+      if (ajuste.size) r = await core.promociones.evaluar({ empresaId, lineas, ahora, cupos: restarCupos(cupos, ajuste) });
+      const usos = {};
+      for (const l of r.lineas) {
+        const d = porDoc.get(l.id);
+        unidadesDe(d && congelada(d) ? d.payload?.doc?.promociones : l.promociones, new Map()).forEach((n, id) => (usos[id] = (usos[id] ?? 0) + n));
+      }
+      const c = await core.promociones.confirmarUsos({ empresaId, referencia: pedidoCode, clienteId, usos, ahora });
+      if (c.ok) {
+        confirmado = c;
+        break;
+      }
+      if (intento >= 3) throw new Error("los cupos de las promociones cambiaron mientras se calculaba el pedido");
+    }
+    try {
+      const porCode = new Map(r.lineas.map((l) => [l.id, l]));
+      for (const d of docs) {
+        if (!ESTADOS_CON_PROMOCION.includes(d.estado)) continue; // un ítem pagado ya no cambia
+        const l = porCode.get(d.code);
+        if (!l) continue;
+        const x = d.payload.doc;
+        if (x.descuento) continue; // con un vale no recibe promoción
+        const promociones = l.promociones.map((p) => ({ id: String(p.id), nombre: p.nombre, monto: p.monto, unidades: p.unidades }));
+        const base = baseDe(x);
+        const subtotal = (centavosDe(base) - promociones.reduce((n, p) => n + centavosDe(p.monto), 0)) / 100;
+        const igual =
+          x.subtotal === subtotal &&
+          x.subtotalBase === base &&
+          JSON.stringify(promocionesDe(x)) === JSON.stringify(promociones.map((p) => ({ ...p, unidades: p.unidades ?? null })));
+        if (igual) continue;
+        await documentos.nuevaVersion({
+          code: d.code,
+          doc: { ...x, subtotalBase: base, promociones, subtotal },
+          usuarioId: actor.usuarioId,
+          esperaVersion: d.version,
+        });
+      }
+    } catch (e) {
+      // No se guardó todo: los usos vuelven a como estaban (los ítems que sí cambiaron se ajustan en el siguiente recálculo).
+      if (confirmado) {
+        const previo = Object.fromEntries(Object.entries(confirmado.previo ?? {}).map(([id, v]) => [id, v.usos]));
+        await core.promociones.confirmarUsos({ empresaId, referencia: pedidoCode, clienteId, usos: previo, ahora, forzar: true }).catch(() => {});
+      }
+      throw e;
+    }
+    return { topadas: r.topadas ?? [] };
   }
 
   /**
    * Recalcula las promociones de un pedido abierto. Nunca lanza: si no se pudo, devuelve `{ promocionesError: true }` para
    * que la respuesta avise (el pedido, el ítem o el cobro que lo pidió no se revierten). Ante un conflicto de versión
-   * (otro mesero tocó un ítem a la vez) lo repite entero.
+   * (otro mesero tocó un ítem a la vez) lo repite entero. Si un tope de usos frenó alguna promoción, devuelve
+   * `promocionesAviso: [{ id, nombre, motivo }]` (motivo: pedido, dia, cliente o sin_cliente).
    */
   async function recalcularPromociones({ empresaId, actor, pedidoCode }) {
     if (typeof core.promociones?.evaluar !== "function") return {};
     for (let intento = 0; ; intento++) {
       try {
-        await recalcularUnaVez({ empresaId, actor, pedidoCode });
-        return {};
+        const { topadas } = await recalcularUnaVez({ empresaId, actor, pedidoCode });
+        return topadas?.length ? { promocionesAviso: topadas } : {};
       } catch (e) {
         if (e?.codigo === "CONFLICTO_VERSION" && intento < 3) continue;
         console.error(`tobt: no se pudieron recalcular las promociones del pedido ${pedidoCode}`, e);
@@ -418,7 +483,9 @@ export function crearServicio(core) {
         usuarioId: actor.usuarioId,
         esperaVersion: esperaVersion ?? actual.version,
       });
-      return await completoPedido(nuevo);
+      // El tope «por cliente» depende de quién es el cliente: al cambiarlo se recalcula.
+      const promo = await recalcularPromociones({ empresaId, actor, pedidoCode: code });
+      return { ...(await completoPedido(promo.promocionesError ? nuevo : await cargarPedido(code))), ...promo };
     });
   }
 
@@ -685,6 +752,8 @@ export function crearServicio(core) {
           sinAnular.push(c);
         }
       }
+      // Los usos de promociones topadas que tenía reservados vuelven a quedar libres (no debe tumbar la anulación).
+      if (hayTopes()) await core.promociones.liberarUsos({ empresaId, referencia: code }).catch((e) => console.error(`tobt: no se pudieron liberar los usos de promociones de ${code}`, e));
       const completa = await completoPedido(d);
       return sinAnular.length ? { ...completa, sinAnular } : completa;
     });

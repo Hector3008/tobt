@@ -384,6 +384,10 @@ test("avisoPromociones: solo avisa si el servidor dice que no pudo recalcular", 
   assert.equal(avisoPromociones({ code: "PD-1" }), "");
   assert.equal(avisoPromociones(null), "");
   assert.match(avisoPromociones({ promocionesError: true }), /no se pudieron recalcular las promociones/);
+  assert.equal(avisoPromociones({ promocionesAviso: [{ nombre: "Latte gratis", motivo: "dia" }] }), "Latte gratis: ya no tiene usos disponibles hoy.");
+  assert.match(avisoPromociones({ promocionesAviso: [{ nombre: "A", motivo: "sin_cliente" }, { nombre: "B", motivo: "pedido" }] }), /A: solo vale para un cliente identificado.*B: llegó al máximo por pedido\./);
+  assert.match(avisoPromociones({ promocionesAviso: [{ nombre: "X", motivo: "raro" }] }), /X: alcanzó su límite de usos\./);
+  assert.equal(avisoPromociones({ promocionesAviso: [] }), "");
 });
 
 test("referidos (5.47): el código se normaliza y solo el formato completo cuenta como código", () => {

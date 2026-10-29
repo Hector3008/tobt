@@ -481,3 +481,213 @@ describe("recibos y cuenta con promociones (5.42)", () => {
     assert.deepEqual([cuenta.promociones, cuenta.total, cuenta.lineas.length], [10, 10, 2]);
   });
 });
+
+// ---------- topes de usos (5.44) ----------
+// El núcleo falso trae contadores con el mismo contrato que `core.promociones.cupos/confirmarUsos/liberarUsos`
+// (el comportamiento real de los contadores se prueba en `core`); aquí se prueba cómo `tobt` los usa.
+function conContadores(core) {
+  const reservas = new Map(); // referencia → { clienteId, usos: { idPromo: n } }
+  const total = (id) => [...reservas.values()].reduce((n, r) => n + (r.usos[id] ?? 0), 0);
+  const delCliente = (id, cli) => [...reservas.values()].filter((r) => r.clienteId === cli).reduce((n, r) => n + (r.usos[id] ?? 0), 0);
+  const conTope = () => core.promos.filter((p) => p.activa && (p.topes?.diario || p.topes?.porCliente));
+  core.reservas = reservas;
+  core.total = total;
+  core.promociones.cupos = async ({ referencia, clienteId }) => {
+    const mia = reservas.get(referencia);
+    const salida = {};
+    for (const p of conTope()) {
+      let max = Infinity;
+      let motivo = "dia";
+      const mio = mia?.usos[p.id] ?? 0;
+      if (p.topes.diario) max = mio + Math.max(0, p.topes.diario - total(p.id));
+      if (p.topes.porCliente) {
+        const t = clienteId ? (mia?.clienteId === clienteId ? mio : 0) + Math.max(0, p.topes.porCliente - delCliente(p.id, clienteId)) : 0;
+        if (t < max) [max, motivo] = [t, clienteId ? "cliente" : "sin_cliente"];
+      }
+      salida[p.id] = { max, motivo };
+    }
+    return salida;
+  };
+  core.promociones.confirmarUsos = async ({ referencia, clienteId, usos }) => {
+    core.confirmaciones = (core.confirmaciones ?? 0) + 1;
+    const previo = Object.fromEntries(Object.entries(reservas.get(referencia)?.usos ?? {}).map(([k, v]) => [k, { usos: v }]));
+    const antes = reservas.get(referencia);
+    const nuevo = { clienteId, usos: Object.fromEntries(Object.entries(usos).filter(([, n]) => n > 0)) };
+    reservas.delete(referencia);
+    for (const p of conTope()) {
+      const n = nuevo.usos[p.id] ?? 0;
+      const excede = (p.topes.diario && total(p.id) + n > p.topes.diario) || (p.topes.porCliente && n > 0 && (!clienteId || delCliente(p.id, clienteId) + n > p.topes.porCliente));
+      if (excede && !core.permitirExceso) {
+        if (antes) reservas.set(referencia, antes);
+        return { ok: false };
+      }
+    }
+    if (Object.keys(nuevo.usos).length) reservas.set(referencia, nuevo);
+    return { ok: true, previo };
+  };
+  core.promociones.liberarUsos = async ({ referencia }) => void reservas.delete(referencia);
+  const evaluar = core.promociones.evaluar;
+  core.promociones.evaluar = (p) => evaluarPromociones({ lineas: p.lineas, promociones: core.promos, ahora: p.ahora, zona: ZONA, cupos: p.cupos });
+  void evaluar;
+  return core;
+}
+
+describe("topes de usos de las promociones (5.44)", () => {
+  let core, svc;
+  const montar = (promos) => {
+    core = conContadores(nucleoFalso({ promos, reloj: { ahora: LIMA("20:00") } }));
+    svc = crearServicio(core);
+  };
+  const abrir = (items, extra = {}) => svc.pedidos.crear({ empresaId: E, actor: MESERO, canal: "salon", mesa: "4", items, ...extra });
+  const pedir = (code, items) => svc.pedidos.agregarItems({ empresaId: E, actor: MESERO, code, items });
+  const lattes = (n) => Array.from({ length: n }, () => ({ codigo: "LATTE" }));
+  const GRATIS = (topes, extra = {}) => P({ id: "g", nombre: "Latte gratis", tipo: "directo", objetivo: item("LATTE"), efecto: "gratis", topes, ...extra });
+
+  it("el tope diario es de toda la empresa: el segundo pedido ya no recibe descuento y el aviso lo dice", async () => {
+    montar([GRATIS({ diario: 2 })]);
+    const a = await abrir(lattes(3));
+    assert.equal(a.total, 10);
+    assert.deepEqual(a.promocionesAviso.map((x) => [x.id, x.motivo]), [["g", "dia"]]);
+    assert.equal(core.total("g"), 2);
+    const b = await abrir(lattes(2));
+    assert.equal(b.total, 20);
+    assert.equal(b.promocionesAviso[0].motivo, "dia");
+    assert.equal(core.total("g"), 2);
+  });
+
+  it("sin tope alcanzado no hay aviso, y recalcular no cuenta dos veces los mismos usos", async () => {
+    montar([GRATIS({ diario: 5 })]);
+    const a = await abrir(lattes(2));
+    assert.equal(a.promocionesAviso, undefined);
+    await pedir(a.code, lattes(1));
+    await pedir(a.code, [{ codigo: "TORTA" }]);
+    assert.equal(core.total("g"), 3);
+  });
+
+  it("al anular el pedido sus usos se liberan y otro pedido puede aprovecharlos", async () => {
+    montar([GRATIS({ diario: 2 })]);
+    const a = await abrir(lattes(2));
+    assert.equal(core.total("g"), 2);
+    const b = await abrir(lattes(1));
+    assert.equal(b.total, 10);
+    await svc.pedidos.anular({ empresaId: E, actor: ADMIN, code: a.code, motivo: { codigo: "error_pedido" } });
+    assert.equal(core.total("g"), 0);
+    const c = await pedir(b.code, lattes(1));
+    assert.equal(c.total, 0, "con cupo libre el pedido recupera su descuento (los dos lattes salen gratis)");
+    assert.equal(core.total("g"), 2);
+  });
+
+  it("anular el último ítem libera los usos aunque el pedido siga abierto", async () => {
+    montar([GRATIS({ diario: 2 })]);
+    const a = await abrir(lattes(1));
+    assert.equal(core.total("g"), 1);
+    await svc.items.anular(m(MESERO, "DOC_ITEM-0000001", { motivo: { codigo: "error_pedido" } }));
+    assert.equal(core.total("g"), 0);
+  });
+
+  it("el tope por cliente exige cliente: sin él avisa «sin_cliente»; al asociarlo se recalcula y se aplica", async () => {
+    montar([GRATIS({ porCliente: 1 })]);
+    const a = await abrir(lattes(2));
+    assert.equal(a.total, 20);
+    assert.equal(a.promocionesAviso[0].motivo, "sin_cliente");
+    const b = await svc.pedidos.asociarCliente({ empresaId: E, actor: MESERO, code: a.code, clienteId: "c1" });
+    assert.equal(b.total, 10);
+    assert.equal(b.promocionesAviso[0].motivo, "cliente");
+    assert.equal(core.total("g"), 1);
+    const quitado = await svc.pedidos.asociarCliente({ empresaId: E, actor: MESERO, code: a.code, clienteId: null });
+    assert.equal(quitado.total, 20);
+    assert.equal(core.total("g"), 0);
+  });
+
+  it("el tope por pedido lo resuelve el evaluador sin contadores", async () => {
+    montar([GRATIS({ porPedido: 1 })]);
+    const a = await abrir(lattes(3));
+    assert.equal(a.total, 20);
+    assert.equal(a.promocionesAviso[0].motivo, "pedido");
+  });
+
+  it("si no se pudieron guardar los ítems, los usos vuelven a como estaban", async () => {
+    montar([GRATIS({ diario: 5 })]);
+    const a = await abrir(lattes(1));
+    assert.equal(core.total("g"), 1);
+    core.conflictos = 99;
+    const e = console.error;
+    console.error = () => {};
+    try {
+      const r = await pedir(a.code, lattes(2));
+      assert.equal(r.promocionesError, true);
+    } finally {
+      console.error = e;
+    }
+    assert.equal(core.total("g"), 1, "no quedó reservado lo que no se guardó");
+  });
+
+  it("si los cupos cambian a la vez (otro pedido se llevó el último) se reintenta y se respeta el tope", async () => {
+    montar([GRATIS({ diario: 1 })]);
+    const original = core.promociones.confirmarUsos;
+    let robado = false;
+    core.promociones.confirmarUsos = async (p) => {
+      if (!robado) {
+        robado = true;
+        core.reservas.set("OTRO", { clienteId: null, usos: { g: 1 } }); // otro pedido toma el único cupo justo antes
+      }
+      return original(p);
+    };
+    const a = await abrir(lattes(2));
+    assert.equal(a.total, 20);
+    assert.equal(a.promocionesError, undefined, "se reintentó con los cupos nuevos");
+    assert.equal(a.promocionesAviso[0].motivo, "dia");
+    assert.equal(core.total("g"), 1, "solo el del otro pedido");
+  });
+
+  it("si el cupo no deja de cambiar, avisa en vez de repetir sin fin", async () => {
+    montar([GRATIS({ diario: 1 })]);
+    core.promociones.confirmarUsos = async () => ({ ok: false });
+    const e = console.error;
+    console.error = () => {};
+    try {
+      const a = await abrir(lattes(2));
+      assert.equal(a.promocionesError, true);
+      assert.equal(a.total, 20);
+    } finally {
+      console.error = e;
+    }
+  });
+
+  it("un ítem ya pagado conserva sus usos: no se cuentan dos veces ni se le quita el descuento", async () => {
+    montar([GRATIS({ diario: 1 })]);
+    const a = await abrir(lattes(2)); // el primero sale gratis (1 uso)
+    await svc.items.marcarLista(m(COCINA, "DOC_ITEM-0000001"));
+    await svc.items.entregar(m(MESERO, "DOC_ITEM-0000001"));
+    await svc.pedidos.cobrarItems?.({ empresaId: E, actor: ADMIN, code: a.code, items: ["DOC_ITEM-0000001"] });
+    const c = await pedir(a.code, lattes(1));
+    assert.equal(core.total("g"), 1);
+    assert.equal(c.items.find((i) => i.code === "DOC_ITEM-0000001").subtotal, 0);
+    assert.equal(c.items.find((i) => i.code === "DOC_ITEM-0000003").subtotal, 10);
+  });
+
+  it("lo ya cobrado cuenta con los usos que guardó, aunque la evaluación nueva se los repartiría distinto", async () => {
+    montar([GRATIS({ diario: 2 })]);
+    const a = await abrir([{ codigo: "LATTE" }, { codigo: "TORTA" }]);
+    const A = "DOC_ITEM-0000001";
+    await svc.items.marcarLista(m(COCINA, A));
+    await svc.items.entregar(m(MESERO, A));
+    await svc.pedidos.cobrarItems({ empresaId: E, actor: ADMIN, code: a.code, items: [A] });
+    // El ítem pagado guardó 2 usos (p. ej. de una regla anterior) y el pedido los tiene reservados.
+    core.docs.get(A).payload.doc.promociones = [{ id: "g", nombre: "Latte gratis", monto: 10, unidades: 2 }];
+    core.reservas.set(a.code, { clienteId: null, usos: { g: 2 } });
+    const c = await pedir(a.code, lattes(1));
+    assert.equal(c.promocionesError, undefined);
+    assert.equal(c.items.find((i) => i.code === "DOC_ITEM-0000003").subtotal, 10, "no queda cupo para el nuevo");
+    assert.equal(core.total("g"), 2);
+  });
+
+  it("sin los contadores del núcleo (un núcleo anterior) todo sigue como antes", async () => {
+    montar([GRATIS({ diario: 1 })]);
+    delete core.promociones.cupos;
+    const a = await abrir(lattes(2));
+    assert.equal(a.total, 0, "sin contadores el tope diario no se aplica (no hay con qué contarlo), pero nada se rompe");
+    assert.equal(a.promocionesAviso, undefined);
+    assert.equal(a.promocionesError, undefined);
+  });
+});

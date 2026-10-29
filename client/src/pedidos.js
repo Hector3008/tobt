@@ -473,11 +473,23 @@ export function textoPromociones(item, moneda) {
   return partes.join(" · ");
 }
 
-/** Aviso si el servidor guardó el cambio pero no pudo recalcular las promociones; vacío si todo salió bien. */
+const MOTIVO_TOPE = {
+  pedido: "llegó al máximo por pedido",
+  dia: "ya no tiene usos disponibles hoy",
+  cliente: "el cliente ya usó su máximo de hoy",
+  sin_cliente: "solo vale para un cliente identificado: asocia un cliente al pedido",
+};
+
+/**
+ * Avisos de promociones de una respuesta: si el servidor guardó el cambio pero no pudo recalcular, o si un tope de usos
+ * frenó alguna promoción (5.44: «Latte gratis: ya no tiene usos disponibles hoy»). Vacío si todo salió bien.
+ */
 export function avisoPromociones(respuesta) {
-  return respuesta?.promocionesError
-    ? "Se guardó el cambio, pero no se pudieron recalcular las promociones. Revisa los descuentos antes de cobrar."
-    : "";
+  const partes = [];
+  if (respuesta?.promocionesError) partes.push("Se guardó el cambio, pero no se pudieron recalcular las promociones. Revisa los descuentos antes de cobrar.");
+  const topadas = Array.isArray(respuesta?.promocionesAviso) ? respuesta.promocionesAviso : [];
+  for (const t of topadas) partes.push(`${t.nombre}: ${MOTIVO_TOPE[t.motivo] ?? "alcanzó su límite de usos"}.`);
+  return partes.join(" ");
 }
 
 // ---------- platos agotados (5.60) ----------
