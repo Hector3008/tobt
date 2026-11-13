@@ -60,6 +60,15 @@ Vista para los **clientes**: `<base>/tobt/catalogo/<slug-de-la-empresa>` (por ej
 - **Reseñas de ejemplo** en `src/resenas-demo.js` (3, iguales para todos los platos, `demo: true`, la página lo avisa). No hay reseñas reales hasta tener identidad del cliente final y dónde guardarlas; entonces solo se reemplaza `resenasDe()`.
 - La página se sirve con `<base href>` en la raíz del montaje, así funciona con cualquier `BASE_PATH`. En desarrollo: `http://localhost:5173/catalogo.html?empresa=<slug>`.
 
+## Inventario: recetas y descuento de insumos (5.76)
+
+Necesita el kardex del núcleo (5.75, `core.kardex`); sin él, tobt funciona igual que antes y las rutas de recetas responden 409.
+
+- Una **receta** dice qué insumos gasta una porción de un plato del catálogo, en la unidad base del insumo (`PUT /recetas/:platoCodigo` con `{ lineas: [{ insumoId, cantidad }] }`, permiso `kardex:gestionar`; `GET /recetas` y `GET /recetas/:platoCodigo` con `kardex:leer`; `DELETE` con `kardex:gestionar`). Colección `tobt_recetas`.
+- Al **crear un ítem** (pedido nuevo o más ítems) se descuenta receta × cantidad con el código del ítem como referencia (repetir no descuenta dos veces). **Nunca bloquea**: si falta stock o el kardex falla, el pedido se crea igual. La respuesta puede traer `stockBajo` (`[{ insumo, nombre, existencia, negativo, bajoMinimo }]`) y `sinReceta` (`[{ codigo, nombre }]`, solo si la empresa ya usa recetas).
+- Al **anular** un ítem (o el pedido) que sigue en cocina, el insumo vuelve al kardex. Si ya salió de cocina (lista o entregado) se preparó y el consumo se queda.
+- Las líneas libres (sin código del catálogo) no descuentan nada.
+
 ## Pruebas
 
 ```

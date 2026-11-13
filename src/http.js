@@ -10,6 +10,8 @@ const STATUS_DOCUMENTO = {
 function responder(res, e, next) {
   if (e instanceof ErrorPedido || e instanceof ErrorCatalogo || e instanceof ErrorCliente || e instanceof ErrorAuth || e instanceof ErrorFidelizacion)
     return res.status(e.status).json({ error: e.message, codigo: e.codigo, ...(e.detalle ?? {}) });
+  // Errores del kardex del núcleo (5.75). Se reconocen por nombre para no exigir que `core` ya los exporte.
+  if (e?.name === "ErrorKardex") return res.status(e.status).json({ error: e.message, codigo: e.codigo, ...(e.detalle ? { detalle: e.detalle } : {}) });
   if (e instanceof ErrorDocumento)
     return res
       .status(STATUS_DOCUMENTO[e.codigo] ?? 400)
@@ -54,12 +56,19 @@ function responder(res, e, next) {
  *   GET  /reportes/ventas (?desde=AAAA-MM-DD &hasta= &dias=N &gran=dia|semana|mes)   reporte:leer   ventas cobradas (ítems pagados) resumidas
  *        por tiempo, categoría, mesero (quien cobra), cliente, plato, hora y canal, más propinas y formas de pago (recibos)
  *
+ * Recetas (5.76; necesitan el kardex del núcleo, 5.75)
+ *   GET    /recetas                                     kardex:leer      { recetas } de la empresa
+ *   GET    /recetas/:platoCodigo                        kardex:leer      qué insumos gasta una porción del plato
+ *   PUT    /recetas/:platoCodigo  { lineas: [{ insumoId, cantidad }] }   kardex:gestionar   crea o reemplaza (cantidad en la unidad base del insumo)
+ *   DELETE /recetas/:platoCodigo                        kardex:gestionar quita la receta (lo ya consumido no cambia)
+ *   Al crear un ítem se descuenta receta × cantidad y la respuesta puede traer `stockBajo` y `sinReceta` (avisos; nunca bloquean).
+ *
  * Vales (5.30)
  *   GET  /vales/:codigo                                 fidelizacion:canjear   el vale, su beneficio y su cliente (no lo gasta)
  */
 export function montarRutas(router, core, servicio) {
   const { autenticar, requierePermiso, eventos, auth } = core;
-  const { pedidos, items, vales, recibos, reportes } = servicio;
+  const { pedidos, items, vales, recibos, reportes, recetas } = servicio;
 
   const envolver = (escribe, fn) => async (req, res, next) => {
     try {
@@ -226,6 +235,26 @@ export function montarRutas(router, core, servicio) {
       const { esperaVersion, codigo } = req.body ?? {};
       res.status(200).json(await items.aplicarVale({ ...base(req), code: req.params.code, codigo, esperaVersion }));
     }),
+  );
+  // ---------- recetas (5.76) ----------
+  const inventarioRuta = (permiso) => [autenticar(), requierePermiso(permiso), eventos.middleware({ estacion: "administracion" })];
+  router.get("/recetas", ...inventarioRuta("kardex:leer"), envolver(false, async (req, res) => res.status(200).json({ recetas: await recetas.listar({ ...base(req) }) })));
+  router.get(
+    "/recetas/:platoCodigo",
+    ...inventarioRuta("kardex:leer"),
+    envolver(false, async (req, res) => res.status(200).json(await recetas.obtener({ ...base(req), platoCodigo: req.params.platoCodigo }))),
+  );
+  router.put(
+    "/recetas/:platoCodigo",
+    ...inventarioRuta("kardex:gestionar"),
+    envolver(true, async (req, res) =>
+      res.status(200).json(await recetas.guardar({ ...base(req), platoCodigo: req.params.platoCodigo, lineas: req.body?.lineas })),
+    ),
+  );
+  router.delete(
+    "/recetas/:platoCodigo",
+    ...inventarioRuta("kardex:gestionar"),
+    envolver(true, async (req, res) => res.status(200).json(await recetas.borrar({ ...base(req), platoCodigo: req.params.platoCodigo }))),
   );
   router.get(
     "/vales/:codigo",

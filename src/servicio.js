@@ -10,6 +10,7 @@ import {
   calcularTotales,
 } from "./validacion.js";
 import { armarCuenta, armarRecibo, reciboDto, validarPago } from "./recibo.js";
+import { crearInventario } from "./inventario.js";
 
 export const TIPO_ITEM = "doc_item";
 export const TIPO_PEDIDO = "pedido";
@@ -33,6 +34,8 @@ const ESTADOS_ITEM_ACTIVOS = ["en_cocina", "lista", "entregado", "pagado"];
  */
 export function crearServicio(core) {
   const { documentos, catalogo, clientes } = core;
+  // Recetas y descuento de insumos del kardex (5.76). Sin kardex en el núcleo no hace nada.
+  const inventario = crearInventario(core);
 
   const exigir = (actor, permiso) => {
     if (!actor || !permite(actor.permisos ?? [], permiso))
@@ -193,6 +196,24 @@ export function crearServicio(core) {
       if (codigos.length) await vincular({ actor, pedidoCode, codigos });
     }
     return codigos;
+  }
+
+  // Descuenta del kardex lo que gastan los ítems recién creados (5.76). Nunca lanza ni frena el pedido: devuelve avisos
+  // (`sinReceta`, `stockBajo`) que se suman a la respuesta, igual que `agotados`.
+  async function descontarInventario({ empresaId, pedidoCode, preparados, codigos }) {
+    return await inventario.descontar({
+      empresaId,
+      items: codigos.map((code, i) => {
+        const copia = preparados[i].copia;
+        return {
+          code,
+          pedidoCode,
+          platoCodigo: copia.origen === "catalogo" ? copia.codigo : null,
+          nombre: copia.nombre,
+          cantidad: preparados[i].cantidad,
+        };
+      }),
+    });
   }
 
   // Agrega los códigos a la lista del pedido. Otro ítem puede estar agregándose a la vez: se reintenta.
@@ -396,9 +417,10 @@ export function crearServicio(core) {
         snapshot: { cliente },
         doc: { canal: p.canal, mesa: p.mesa, referencia: p.referencia, entrega: p.entrega, notas: p.notas, moneda, codigosItems: [] },
       });
-      await crearItems({ actor, pedidoCode: pedido.code, moneda, preparados });
+      const codigos = await crearItems({ actor, pedidoCode: pedido.code, moneda, preparados });
+      const inv = await descontarInventario({ empresaId, pedidoCode: pedido.code, preparados, codigos });
       const promo = await recalcularPromociones({ empresaId, actor, pedidoCode: pedido.code });
-      return { ...(await completoPedido(await cargarPedido(pedido.code))), ...promo, ...avisos };
+      return { ...(await completoPedido(await cargarPedido(pedido.code))), ...promo, ...avisos, ...inv };
     });
   }
 
@@ -410,9 +432,10 @@ export function crearServicio(core) {
       if (pedido.estado !== "abierto") throw new ErrorPedido("ESTADO_INVALIDO", "el pedido ya no está abierto");
       const preparados = await prepararItems({ empresaId, actor, items });
       const avisos = await avisoAgotados({ empresaId, items });
-      await crearItems({ actor, pedidoCode: code, moneda: pedido.payload.doc.moneda ?? null, preparados });
+      const codigos = await crearItems({ actor, pedidoCode: code, moneda: pedido.payload.doc.moneda ?? null, preparados });
+      const inv = await descontarInventario({ empresaId, pedidoCode: code, preparados, codigos });
       const promo = await recalcularPromociones({ empresaId, actor, pedidoCode: code });
-      return { ...(await completoPedido(await cargarPedido(code))), ...promo, ...avisos };
+      return { ...(await completoPedido(await cargarPedido(code))), ...promo, ...avisos, ...inv };
     });
   }
 
@@ -743,15 +766,18 @@ export function crearServicio(core) {
         esperaVersion,
       });
       const sinAnular = [];
+      const devolver = []; // los que seguían en cocina: el insumo vuelve al kardex (5.76)
       for (const c of pedido.payload.doc.codigosItems ?? []) {
         const it = await documentos.obtener({ code: c });
         if (!it || it.estado === "anulado") continue;
         try {
           await documentos.transicionar({ code: c, a: "anulado", motivo, sistema: true });
+          if (it.estado === "en_cocina") devolver.push(c);
         } catch {
           sinAnular.push(c);
         }
       }
+      await inventario.devolver({ empresaId, codes: devolver });
       // Los usos de promociones topadas que tenía reservados vuelven a quedar libres (no debe tumbar la anulación).
       if (hayTopes()) await core.promociones.liberarUsos({ empresaId, referencia: code }).catch((e) => console.error(`tobt: no se pudieron liberar los usos de promociones de ${code}`, e));
       const completa = await completoPedido(d);
@@ -803,6 +829,8 @@ export function crearServicio(core) {
         motivo,
         esperaVersion,
       });
+      // Anulado antes de salir de cocina: el insumo vuelve al kardex. Si ya estaba lista o entregada se preparó y se queda gastado (5.76).
+      if (a === "anulado" && item.estado === "en_cocina") await inventario.devolver({ empresaId, codes: [code] });
       // Si lo último que faltaba por entregar o cobrar se anuló, y ya se cobró algo, el pedido se cierra solo.
       // Anular un ítem puede quitar la promoción de otros (el que la disparaba) o formar otra: se recalcula antes de cerrar.
       const promo = a === "anulado" ? await recalcularPromociones({ empresaId, actor, pedidoCode: item.payload.doc.pedidoCode }) : {};
@@ -976,5 +1004,11 @@ export function crearServicio(core) {
       aplicarVale,
     },
     vales: { consultar: consultarVale },
+    recetas: {
+      listar: inventario.listarRecetas,
+      obtener: inventario.obtenerReceta,
+      guardar: inventario.guardarReceta,
+      borrar: inventario.borrarReceta,
+    },
   };
 }

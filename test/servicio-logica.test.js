@@ -1308,3 +1308,236 @@ describe("rutas de tobt (núcleo falso)", () => {
     delete core.fidelizacion; // el núcleo falso se comparte con las demás pruebas de rutas
   });
 });
+
+// ---------- Inventario: recetas y descuento de insumos del kardex (5.76) ----------
+function kardexFalso() {
+  const insumos = new Map([
+    ["aaaaaaaaaaaaaaaaaaaaaaa1", { id: "aaaaaaaaaaaaaaaaaaaaaaa1", codigo: "CAFE", nombre: "Café molido", existencia: 1000, stockMinimo: 100, activo: true }],
+    ["aaaaaaaaaaaaaaaaaaaaaaa2", { id: "aaaaaaaaaaaaaaaaaaaaaaa2", codigo: "LECHE", nombre: "Leche", existencia: 300, stockMinimo: 0, activo: true }],
+    ["aaaaaaaaaaaaaaaaaaaaaaa3", { id: "aaaaaaaaaaaaaaaaaaaaaaa3", codigo: "VIEJO", nombre: "Viejo", existencia: 0, stockMinimo: 0, activo: false }],
+  ]);
+  const k = { insumos, consumos: [], reversas: [], falla: false };
+  k.obtenerInsumo = async ({ insumoId }) => {
+    const i = insumos.get(insumoId);
+    if (!i) throw Object.assign(new Error("insumo no encontrado"), { name: "ErrorKardex", codigo: "NO_ENCONTRADO", status: 404 });
+    return structuredClone(i);
+  };
+  k.consumirVarios = async ({ referencia, lineas, detalle }) => {
+    if (k.falla) throw new Error("kardex caído");
+    k.consumos.push({ referencia, lineas, detalle });
+    const aplicados = lineas.map((l) => {
+      const i = insumos.get(l.insumoId);
+      i.existencia = Math.round((i.existencia - l.cantidad) * 1000) / 1000;
+      return { insumoId: l.insumoId, codigo: i.codigo, nombre: i.nombre, cantidad: l.cantidad, existencia: i.existencia, negativo: i.existencia < 0, bajoMinimo: i.stockMinimo > 0 && i.existencia <= i.stockMinimo };
+    });
+    return { aplicados, yaRegistrados: [], errores: [] };
+  };
+  k.revertir = async ({ referencia }) => {
+    k.reversas.push(referencia);
+    return { aplicados: [], yaRegistrados: [], errores: [] };
+  };
+  return k;
+}
+
+function recetasFalsas() {
+  const filas = [];
+  let n = 0;
+  const consulta = (fn) => {
+    const o = {};
+    o.lean = () => o;
+    o.sort = () => o;
+    o.then = (ok, ko) => Promise.resolve().then(() => structuredClone(fn())).then(ok, ko);
+    return o;
+  };
+  return {
+    filas,
+    find: (f = {}) => consulta(() => filas.filter((r) => !f.platoClave?.$in || f.platoClave.$in.includes(r.platoClave))),
+    findOne: (f) => consulta(() => filas.find((r) => r.platoClave === f.platoClave) ?? null),
+    async countDocuments() {
+      return filas.length;
+    },
+    async create(d) {
+      filas.push({ _id: String(++n), ...structuredClone(d) });
+    },
+    async updateOne({ _id }, { $set }) {
+      Object.assign(filas.find((r) => r._id === _id), structuredClone($set));
+    },
+    async deleteOne({ _id }) {
+      filas.splice(filas.findIndex((r) => r._id === _id), 1);
+    },
+  };
+}
+
+describe("inventario: recetas y descuento al crear el ítem (5.76, núcleo falso)", () => {
+  const CAFE = "aaaaaaaaaaaaaaaaaaaaaaa1";
+  const LECHE = "aaaaaaaaaaaaaaaaaaaaaaa2";
+  const VIEJO = "aaaaaaaaaaaaaaaaaaaaaaa3";
+  let core, svc, kardex, recetas;
+  const nuevo = () => {
+    core = nucleoFalso();
+    kardex = kardexFalso();
+    recetas = recetasFalsas();
+    core.kardex = kardex;
+    core.model = () => recetas;
+    svc = crearServicio(core);
+  };
+  const receta = (plato = "cafe-1", lineas = [{ insumoId: CAFE, cantidad: 15 }, { insumoId: LECHE, cantidad: 200 }], actor = ADMIN) =>
+    svc.recetas.guardar({ empresaId: E, actor, platoCodigo: plato, lineas });
+  const abrir = (items, actor = MESERO) => svc.pedidos.crear({ empresaId: E, actor, canal: "salon", mesa: "4", items });
+  const m = (actor, code, extra = {}) => ({ empresaId: E, actor, code, ...extra });
+
+  it("guardar la receta exige kardex:gestionar, valida y usa el código del catálogo", async () => {
+    nuevo();
+    await assert.rejects(receta("cafe-1", undefined, MESERO), cod("PERMISO_INSUFICIENTE"));
+    await assert.rejects(receta("cafe-1", []), cod("DATOS_INVALIDOS"));
+    await assert.rejects(receta("cafe-1", [{ insumoId: "x", cantidad: 1 }]), cod("DATOS_INVALIDOS"));
+    await assert.rejects(receta("cafe-1", [{ insumoId: CAFE, cantidad: 0 }]), cod("DATOS_INVALIDOS"));
+    await assert.rejects(receta("cafe-1", [{ insumoId: CAFE, cantidad: 1.2345 }]), cod("DATOS_INVALIDOS"));
+    await assert.rejects(receta("cafe-1", [{ insumoId: CAFE, cantidad: 1 }, { insumoId: CAFE, cantidad: 2 }]), cod("DATOS_INVALIDOS"));
+    await assert.rejects(receta("cafe-1", [{ insumoId: VIEJO, cantidad: 1 }]), cod("DATOS_INVALIDOS")); // desactivado
+    await assert.rejects(receta("cafe-1", [{ insumoId: "bbbbbbbbbbbbbbbbbbbbbbb9", cantidad: 1 }]), (e) => e.codigo === "NO_ENCONTRADO");
+    await assert.rejects(receta("no-existe"), cod("ITEM_NO_DISPONIBLE"));
+    const r = await receta();
+    assert.equal(r.platoCodigo, "CAFE-1");
+    assert.deepEqual(r.lineas, [{ insumoId: CAFE, cantidad: 15 }, { insumoId: LECHE, cantidad: 200 }]);
+    const cambiada = await receta("Cafe-1", [{ insumoId: CAFE, cantidad: 18 }]);
+    assert.equal(recetas.filas.length, 1, "reemplaza, no duplica");
+    assert.deepEqual(cambiada.lineas, [{ insumoId: CAFE, cantidad: 18 }]);
+    assert.deepEqual((await svc.recetas.listar({ empresaId: E, actor: { usuarioId: "u", permisos: ["kardex:leer"] } })).map((x) => x.platoCodigo), ["CAFE-1"]);
+    await assert.rejects(svc.recetas.listar({ empresaId: E, actor: MESERO }), cod("PERMISO_INSUFICIENTE"));
+    await assert.rejects(svc.recetas.borrar({ empresaId: E, actor: { usuarioId: "u", permisos: ["kardex:leer"] }, platoCodigo: "cafe-1" }), cod("PERMISO_INSUFICIENTE"));
+    assert.equal((await svc.recetas.borrar({ empresaId: E, actor: ADMIN, platoCodigo: "cafe-1" })).eliminada, true);
+    await assert.rejects(svc.recetas.obtener({ empresaId: E, actor: ADMIN, platoCodigo: "cafe-1" }), cod("NO_ENCONTRADO"));
+  });
+
+  it("crear el pedido descuenta receta × cantidad de cada ítem, con el código del ítem como referencia", async () => {
+    nuevo();
+    await receta();
+    const c = await abrir([{ codigo: "cafe-1", cantidad: 2 }]);
+    assert.equal(kardex.consumos.length, 1);
+    assert.equal(kardex.consumos[0].referencia, c.items[0].code);
+    assert.deepEqual(kardex.consumos[0].lineas, [{ insumoId: CAFE, cantidad: 30 }, { insumoId: LECHE, cantidad: 400 }]);
+    assert.equal(kardex.consumos[0].detalle, `Pedido ${c.code}`);
+    assert.equal(kardex.insumos.get(CAFE).existencia, 970);
+    // La leche quedó en negativo (300 − 400): el pedido se creó igual y avisa
+    assert.equal(c.estado, "abierto");
+    assert.deepEqual(c.stockBajo, [{ insumo: "LECHE", nombre: "Leche", existencia: -100, negativo: true, bajoMinimo: false }]);
+    assert.equal(c.sinReceta, undefined);
+  });
+
+  it("pedir más también descuenta; el stock mínimo avisa sin ser negativo", async () => {
+    nuevo();
+    await receta("cafe-1", [{ insumoId: CAFE, cantidad: 450 }]);
+    const c = await abrir([{ codigo: "cafe-1" }]);
+    assert.equal(c.stockBajo, undefined); // 1000 − 450 = 550, sobre el mínimo (100)
+    const d = await svc.pedidos.agregarItems({ empresaId: E, actor: MESERO, code: c.code, items: [{ codigo: "cafe-1" }] });
+    assert.equal(kardex.consumos.length, 2);
+    assert.deepEqual(d.stockBajo, [{ insumo: "CAFE", nombre: "Café molido", existencia: 100, negativo: false, bajoMinimo: true }]);
+  });
+
+  it("avisa los platos sin receta solo si la empresa ya usa recetas; las líneas libres no cuentan", async () => {
+    nuevo();
+    const sinUsar = await abrir([{ codigo: "sand-1" }]);
+    assert.equal(sinUsar.sinReceta, undefined, "sin recetas en la empresa no hay avisos");
+    assert.equal(kardex.consumos.length, 0);
+    await receta();
+    const c = await abrir([{ codigo: "cafe-1" }, { codigo: "sand-1" }, { libre: { nombre: "Torta", precio: 5 } }]);
+    assert.deepEqual(c.sinReceta, [{ codigo: "SAND-1", nombre: "Sándwich" }]);
+    assert.equal(kardex.consumos.length, 1, "solo el café descuenta");
+  });
+
+  it("si el kardex falla, el pedido se crea igual", async () => {
+    nuevo();
+    await receta();
+    kardex.falla = true;
+    const silencio = console.error;
+    console.error = () => {};
+    try {
+      const c = await abrir([{ codigo: "cafe-1" }]);
+      assert.equal(c.estado, "abierto");
+      assert.equal(c.items.length, 1);
+    } finally {
+      console.error = silencio;
+    }
+  });
+
+  it("sin kardex en el núcleo todo sigue igual y las recetas no están disponibles", async () => {
+    core = nucleoFalso();
+    svc = crearServicio(core);
+    const c = await svc.pedidos.crear({ empresaId: E, actor: MESERO, canal: "salon", mesa: "4", items: [{ codigo: "cafe-1" }] });
+    assert.equal(c.stockBajo, undefined);
+    assert.equal(c.sinReceta, undefined);
+    await assert.rejects(svc.recetas.guardar({ empresaId: E, actor: ADMIN, platoCodigo: "cafe-1", lineas: [{ insumoId: CAFE, cantidad: 1 }] }), cod("ESTADO_INVALIDO"));
+  });
+
+  it("anular un ítem que sigue en cocina devuelve el insumo; si ya salió de cocina, no", async () => {
+    nuevo();
+    await receta();
+    const c = await abrir([{ codigo: "cafe-1" }, { codigo: "cafe-1" }]);
+    const [a, b] = c.items.map((i) => i.code);
+    await svc.items.anular(m(MESERO, a, { motivo }));
+    assert.deepEqual(kardex.reversas, [a]);
+    await svc.items.marcarLista(m(COCINA, b));
+    await svc.items.anular(m(CAJERO, b, { motivo }));
+    assert.deepEqual(kardex.reversas, [a], "el ítem ya preparado se queda gastado");
+  });
+
+  it("anular el pedido devuelve solo lo que seguía en cocina", async () => {
+    nuevo();
+    await receta();
+    const c = await abrir([{ codigo: "cafe-1" }, { codigo: "cafe-1" }, { codigo: "cafe-1" }]);
+    const [a, b, d] = c.items.map((i) => i.code);
+    await svc.items.marcarLista(m(COCINA, b));
+    await svc.items.marcarLista(m(COCINA, d));
+    await svc.items.entregar(m(MESERO, d));
+    await svc.pedidos.anular(m(CAJERO, c.code, { motivo }));
+    assert.deepEqual(kardex.reversas, [a]);
+  });
+});
+
+describe("rutas de recetas (5.76, núcleo falso)", () => {
+  const CAFE = "aaaaaaaaaaaaaaaaaaaaaaa1";
+  let server, url;
+  const sesion = { auth: { usuarioId: "u1", empresaId: "e1" }, rol: { permisos: ["*"] } };
+  const permisosPedidos = [];
+
+  before(async () => {
+    const core = nucleoFalso();
+    core.kardex = kardexFalso();
+    core.model = () => recetasFalsas();
+    const svc = crearServicio(core);
+    const router = express.Router();
+    router.use(express.json());
+    const ctx = {
+      autenticar: () => (req, res, next) => (Object.assign(req, structuredClone(sesion)), next()),
+      requierePermiso: (p) => (permisosPedidos.push(p), (req, res, next) => next()),
+      eventos: { middleware: () => (req, res, next) => next() },
+      auth: { exigirCsrf(req) { if (!req.headers["x-requested-with"]) throw new ErrorPedido("PERMISO_INSUFICIENTE", "falta x-requested-with"); } },
+    };
+    montarRutas(router, ctx, svc);
+    const app = express();
+    app.use("/tobt", router);
+    await new Promise((r) => (server = app.listen(0, r)));
+    url = `http://127.0.0.1:${server.address().port}/tobt`;
+  });
+  after(() => server.close());
+
+  const pedir = (metodo, ruta, cuerpo, cab = {}) =>
+    fetch(url + ruta, { method: metodo, headers: { "content-type": "application/json", "x-requested-with": "fetch", ...cab }, body: cuerpo === undefined ? undefined : JSON.stringify(cuerpo) });
+
+  it("PUT, GET, listado y DELETE de una receta; los errores salen con su status", async () => {
+    let r = await pedir("PUT", "/recetas/cafe-1", { lineas: [{ insumoId: CAFE, cantidad: 15 }] });
+    assert.equal(r.status, 200);
+    assert.equal((await r.json()).platoCodigo, "CAFE-1");
+    r = await pedir("GET", "/recetas/cafe-1");
+    assert.deepEqual((await r.json()).lineas, [{ insumoId: CAFE, cantidad: 15 }]);
+    assert.equal((await (await pedir("GET", "/recetas")).json()).recetas.length, 1);
+    assert.equal((await pedir("PUT", "/recetas/cafe-1", { lineas: [] })).status, 400);
+    assert.equal((await pedir("PUT", "/recetas/cafe-1", { lineas: [{ insumoId: "bbbbbbbbbbbbbbbbbbbbbbb9", cantidad: 1 }] })).status, 404); // insumo del kardex que no existe
+    assert.equal((await pedir("PUT", "/recetas/cafe-1", { lineas: [{ insumoId: CAFE, cantidad: 1 }] }, { "x-requested-with": "" })).status, 403);
+    assert.equal((await pedir("DELETE", "/recetas/cafe-1")).status, 200);
+    assert.equal((await pedir("GET", "/recetas/cafe-1")).status, 404);
+    assert.equal((await pedir("DELETE", "/recetas/cafe-1")).status, 404);
+    assert.ok(permisosPedidos.includes("kardex:leer") && permisosPedidos.includes("kardex:gestionar"));
+  });
+});
