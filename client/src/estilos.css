@@ -140,6 +140,9 @@ body { margin: 0; background: var(--color-fondo); color: var(--color-texto); fon
 
 /* Recibos y cuenta (5.32) */
 .rs-pago { display: grid; gap: 8px; margin: 12px 0; padding: 10px 12px; border: 1px dashed var(--color-borde); border-radius: 8px; }
+.rs-factura { border: 0; padding: 0; margin: 8px 0 0; display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.rs-factura legend { padding: 0; font-weight: 600; margin-bottom: 4px; }
+.rs-factura label { display: inline-flex; gap: 6px; align-items: center; }
 .rs-pago__campos { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 8px; }
 .rs-pago h2 { margin: 0; }
 .rs-aviso-recibo { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0; padding: 10px 12px; border-radius: 8px; background: var(--color-fondo); border: 1px solid var(--color-borde); }

@@ -480,11 +480,46 @@ describe("reportes: permisos y multiempresa", () => {
   it("el pipeline filtra por tipo y estado primero (aprovecha el índice) y el `$lookup` se limita a la misma empresa", async () => {
     const { svc, modelos } = servicio(datos());
     await svc.ventas(consulta);
-    const [ventas, recibos] = modelos.consultas;
+    const [ventas, recibos, facturas] = modelos.consultas;
+    assert.equal(facturas[0].$match["payload.doc.factura.requerida"], true);
     assert.deepEqual(Object.keys(ventas[0].$match).slice(0, 2), ["tipo", "estado"]);
     const look = ventas.find((e) => e.$lookup).$lookup;
     assert.equal(JSON.stringify(look.pipeline[0]).includes('"$$e"'), true);
     assert.equal(recibos[0].$match.tipo, "recibo");
+  });
+});
+
+describe("reportes: facturas pedidas (5.86)", () => {
+  const rf = (code, metodo, subtotal, propina, createdAt, factura, { empresaId = "e1", pedidoCode = "PD-0000001", clientes = [] } = {}) => ({
+    empresaId, tipo: "recibo", code, estado: "emitido", createdAt: new Date(createdAt),
+    payload: { doc: { metodo, subtotal, propina, total: subtotal + propina, pedidoCode, clientes, ...(factura === undefined ? {} : { factura }) } },
+  });
+  const docs = () => [
+    rf("RC-0000002", "efectivo", 5, 0.5, "2026-10-20T15:05:00Z", { requerida: true, rucReferencia: "20555555551" }, { pedidoCode: "PD-0000002" }),
+    rf("RC-0000001", "yape", 13, 1, "2026-10-20T04:00:00Z", { requerida: true, rucReferencia: "20123456789" }, { clientes: [{ id: "c1", nombre: "Ana" }] }),
+    rf("RC-0000003", "yape", 8, 0, "2026-10-21T01:05:00Z", { requerida: false, rucReferencia: null }),
+    rf("RC-0000004", "tarjeta", 7, 0, "2026-10-21T01:10:00Z"), // anterior a 5.86: sin la pregunta
+    rf("RC-0000005", "yape", 99, 0, "2026-09-01T15:00:00Z", { requerida: true, rucReferencia: "fuera del rango" }),
+    rf("RC-0000006", "yape", 99, 0, "2026-10-20T15:05:00Z", { requerida: true, rucReferencia: "otra empresa" }, { empresaId: "e2" }),
+  ];
+  it("la lista trae solo los recibos con factura pedida del rango y de esta empresa, del más antiguo al más reciente", async () => {
+    const { svc } = servicio(docs());
+    const r = await svc.ventas(consulta);
+    assert.deepEqual(r.facturas.map((f) => [f.recibo, f.rucReferencia, f.pedido, f.total, f.metodoTexto, f.cliente]), [
+      ["RC-0000001", "20123456789", "PD-0000001", 14, "Yape", "Ana"],
+      ["RC-0000002", "20555555551", "PD-0000002", 5.5, "Efectivo", null],
+    ]);
+    assert.equal(r.facturasTruncadas, false);
+  });
+  it("el resumen cuenta los recibos con factura y lo cobrado en ellos", async () => {
+    const { svc } = servicio(docs());
+    const r = await svc.ventas(consulta);
+    assert.deepEqual([r.resumen.recibos, r.resumen.recibosConFactura, r.resumen.cobradoConFactura], [4, 2, 18]);
+  });
+  it("sin recibos con factura: lista vacía y ceros", async () => {
+    const { svc } = servicio([]);
+    const r = await svc.ventas(consulta);
+    assert.deepEqual([r.facturas, r.resumen.recibosConFactura, r.resumen.cobradoConFactura], [[], 0, 0]);
   });
 });
 

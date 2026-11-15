@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, mensajeDeError } from "./api.js";
 import SelectorCliente from "./SelectorCliente.jsx";
 import Recibo from "./Recibo.jsx";
-import { METODOS_PAGO, PAGO_INICIAL, avisoRecibo, cuerpoPago, formatoFechaHora, validarPagoForm } from "./recibos.js";
+import { MAX_RUC_REFERENCIA, METODOS_PAGO, PAGO_INICIAL, avisoRecibo, cuerpoPago, formatoFechaHora, validarPagoForm } from "./recibos.js";
 import {
   CANALES,
   ESTADOS_PEDIDO,
@@ -202,7 +202,7 @@ export default function DetallePedido({ code, permisos, alVolver, alPedirMas, av
   const despuesDeCobrar = (r) => {
     setAvisoPuntos(textoPuntos(r.puntos) ?? "");
     setAvisoRec(avisoRecibo(r));
-    setPago((x) => ({ ...x, propina: "", recibido: "" }));
+    setPago((x) => ({ ...x, propina: "", recibido: "", factura: "no", ruc: "" })); // cada cobro pregunta de nuevo por la factura
   };
   const cobrarItems = (codigos) => {
     const extra = conPago();
@@ -420,6 +420,17 @@ export default function DetallePedido({ code, permisos, alVolver, alPedirMas, av
               </label>
             )}
           </div>
+          <fieldset className="campo rs-factura">
+            <legend>¿El cliente va a requerir factura?</legend>
+            <label><input type="radio" name="factura" checked={pago.factura !== "si"} onChange={() => setPago({ ...pago, factura: "no", ruc: "" })} /> No</label>
+            <label><input type="radio" name="factura" checked={pago.factura === "si"} onChange={() => setPago({ ...pago, factura: "si" })} /> Sí</label>
+          </fieldset>
+          {pago.factura === "si" && (
+            <label className="campo">
+              <span>RUC / REFERENCIA</span>
+              <input value={pago.ruc} maxLength={MAX_RUC_REFERENCIA} required autoComplete="off" placeholder="RUC del cliente o una referencia" onChange={(e) => setPago({ ...pago, ruc: e.target.value })} />
+            </label>
+          )}
           <small className="rs-vacio">Se anota en el recibo del próximo cobro. Con el efectivo recibido, el recibo calcula el vuelto.</small>
         </div>
       )}

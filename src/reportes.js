@@ -276,9 +276,29 @@ export function pipelineRecibos({ desdeTs, hastaTs }) {
         recibos: { $sum: 1 },
         cobrado: { $sum: { $ifNull: ["$payload.doc.subtotal", 0] } },
         propinas: { $sum: { $ifNull: ["$payload.doc.propina", 0] } },
+        conFactura: { $sum: { $cond: [{ $eq: ["$payload.doc.factura.requerida", true] }, 1, 0] } },
+        cobradoConFactura: { $sum: { $cond: [{ $eq: ["$payload.doc.factura.requerida", true] }, { $ifNull: ["$payload.doc.subtotal", 0] }, 0] } },
       },
     },
     { $sort: { cobrado: -1 } },
+  ];
+}
+
+export const MAX_FACTURAS = 1000;
+
+/** Los recibos en que el cliente pidió factura (5.86), del más antiguo al más reciente: lo que contabilidad debe emitir. */
+export function pipelineFacturas({ desdeTs, hastaTs }) {
+  return [
+    { $match: { tipo: "recibo", createdAt: { $gte: desdeTs, $lt: hastaTs }, "payload.doc.factura.requerida": true } },
+    { $sort: { createdAt: 1, code: 1 } },
+    { $limit: MAX_FACTURAS },
+    {
+      $project: {
+        code: 1, createdAt: 1, rucReferencia: "$payload.doc.factura.rucReferencia", pedidoCode: "$payload.doc.pedidoCode",
+        subtotal: "$payload.doc.subtotal", propina: "$payload.doc.propina", total: "$payload.doc.total", metodo: "$payload.doc.metodo",
+        clientes: "$payload.doc.clientes",
+      },
+    },
   ];
 }
 
@@ -302,7 +322,7 @@ export function plegar(filas, max, { clave = "ventas", resto = { nombre: "Otros"
  * Resultado crudo de `$facet` + recibos + nombres de usuarios → la respuesta de la API.
  * `usuarios`: Map id → nombre (o correo).
  */
-export function armarReporte({ facet, recibos, usuarios, empresa, zona, consulta, moneda }) {
+export function armarReporte({ facet, recibos, facturas = [], usuarios, empresa, zona, consulta, moneda }) {
   const f = facet ?? {};
   const resumen = f.resumen?.[0] ?? { ventas: 0, items: 0, unidades: 0 };
   const ventas = redondear(resumen.ventas);
@@ -398,8 +418,18 @@ export function armarReporte({ facet, recibos, usuarios, empresa, zona, consulta
       ticketPromedio: pedidos > 0 ? redondear(ventas / pedidos) : null,
       propinas: redondear(filasRecibos.reduce((n, r) => n + (r.propinas ?? 0), 0)),
       recibos: filasRecibos.reduce((n, r) => n + r.recibos, 0),
+      recibosConFactura: filasRecibos.reduce((n, r) => n + (r.conFactura ?? 0), 0),
+      cobradoConFactura: redondear(filasRecibos.reduce((n, r) => n + (r.cobradoConFactura ?? 0), 0)),
     },
     serie, categorias, meseros, clientes, platos, horas, canales, pagos, promociones,
+    // Recibos con factura pedida (5.86): hasta MAX_FACTURAS, del más antiguo al más reciente
+    facturas: facturas.map((f) => ({
+      recibo: f.code, ts: f.createdAt ?? null, pedido: f.pedidoCode ?? null, rucReferencia: f.rucReferencia ?? null,
+      subtotal: redondear(f.subtotal), propina: redondear(f.propina), total: redondear(f.total ?? (Number(f.subtotal) || 0) + (Number(f.propina) || 0)),
+      metodo: f.metodo ?? null, metodoTexto: f.metodo ? METODOS_PAGO[f.metodo] ?? f.metodo : null,
+      cliente: (f.clientes ?? []).map((c) => c.nombre).filter(Boolean).join(", ") || null,
+    })),
+    facturasTruncadas: facturas.length >= MAX_FACTURAS,
   };
 }
 
@@ -421,9 +451,10 @@ export function crearReportes({ conEmpresa, permite, modelos, ahora = () => Date
     const zona = zonaDe(empresa);
     const consulta = validarConsulta(q, { zona, ahora: ahora() });
     return await conEmpresa(empresaId, async () => {
-      const [facet, recibos] = await Promise.all([
+      const [facet, recibos, facturas] = await Promise.all([
         modelos.Documento.aggregate(pipelineVentas({ ...consulta, zona })),
         modelos.Documento.aggregate(pipelineRecibos(consulta)),
+        modelos.Documento.aggregate(pipelineFacturas(consulta)),
       ]);
       const ids = (facet[0]?.meseros ?? []).map((m) => m._id).filter((id) => id !== null && id !== undefined);
       const usuarios = new Map();
@@ -431,7 +462,7 @@ export function crearReportes({ conEmpresa, permite, modelos, ahora = () => Date
         const filas = await modelos.Usuario.find({ _id: { $in: ids } }).select("nombre correo").lean();
         for (const u of filas) usuarios.set(String(u._id), u.nombre || u.correo || "Sin nombre");
       }
-      return armarReporte({ facet: facet[0], recibos, usuarios, empresa, zona, consulta });
+      return armarReporte({ facet: facet[0], recibos, facturas, usuarios, empresa, zona, consulta });
     });
   }
 

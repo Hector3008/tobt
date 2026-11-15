@@ -11,13 +11,24 @@ export const METODOS_PAGO = [
   ["otro", "Otro"],
 ];
 
-export const PAGO_INICIAL = Object.freeze({ metodo: "", propina: "", recibido: "" });
+// `factura`: "no" | "si" — ¿el cliente va a pedir factura? (5.86). Con "si", `ruc` (RUC o referencia) es obligatorio.
+export const PAGO_INICIAL = Object.freeze({ metodo: "", propina: "", recibido: "", factura: "no", ruc: "" });
+export const MAX_RUC_REFERENCIA = 30;
+const RE_RUC_REFERENCIA = /^[\p{L}\p{N}][\p{L}\p{N} .\-/]*$/u;
+/** El RUC o referencia como se envía: sin espacios de más. */
+export const limpiarRuc = (t) => String(t ?? "").trim().replace(/\s+/g, " ");
 
 const aNumero = (t) => (String(t ?? "").trim() === "" ? null : Number(String(t).trim().replace(",", ".")));
 const dosDecimales = (n) => Math.abs(Math.round(n * 100) / 100 - n) < 1e-9;
 
 /** Lo que falla en el formulario de pago, o null si está bien. */
 export function validarPagoForm(f) {
+  if (f.factura === "si") {
+    const ruc = limpiarRuc(f.ruc);
+    if (!ruc) return "Escribe el RUC o la referencia para la factura.";
+    if (ruc.length > MAX_RUC_REFERENCIA) return `El RUC o la referencia admite hasta ${MAX_RUC_REFERENCIA} caracteres.`;
+    if (!RE_RUC_REFERENCIA.test(ruc)) return "El RUC o la referencia admite solo letras, números, espacios y . - /";
+  }
   const propina = aNumero(f.propina);
   const recibido = aNumero(f.recibido);
   if (!f.metodo) {
@@ -33,12 +44,22 @@ export function validarPagoForm(f) {
   return null;
 }
 
-/** El `pago` que se envía al cobrar, o undefined si no se indicó la forma de pago. Asume que el formulario ya es válido. */
+/**
+ * El `pago` que se envía al cobrar. Siempre lleva la respuesta de la factura (5.86: «no» queda anotado); la forma de pago,
+ * la propina y el efectivo solo si se indicaron. undefined si no hay formulario. Asume que el formulario ya es válido.
+ */
 export function cuerpoPago(f) {
-  if (!f?.metodo) return undefined;
+  if (!f) return undefined;
+  const factura = f.factura === "si" ? { factura: true, rucReferencia: limpiarRuc(f.ruc) } : { factura: false };
+  if (!f.metodo) return factura;
   const propina = aNumero(f.propina);
   const recibido = f.metodo === "efectivo" ? aNumero(f.recibido) : null;
-  return { metodo: f.metodo, ...(propina ? { propina } : {}), ...(recibido ? { recibido } : {}) };
+  return { metodo: f.metodo, ...(propina ? { propina } : {}), ...(recibido ? { recibido } : {}), ...factura };
+}
+
+/** «Sí · RUC / referencia: 20123456789» para el recibo, o "" si no se pidió factura (o el recibo es anterior a 5.86). */
+export function textoFactura(r) {
+  return r?.factura?.requerida ? `Sí · RUC / referencia: ${r.factura.rucReferencia ?? ""}` : "";
 }
 
 /** «21 oct 2026, 20:15» en hora local. Vacío si no hay fecha válida. */

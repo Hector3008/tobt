@@ -32,7 +32,9 @@ function responder(res, e, next) {
  *   PUT  /pedidos/:code  { esperaVersion?, mesa, referencia, entrega, notas }   documento:editar
  *   PUT  /pedidos/:code/cliente  { clienteId|null, esperaVersion? }   documento:editar (solo abierto)
  *   POST /pedidos/:code/cobrar  { esperaVersion?, clienteId?, pago? }   documento:editar + estación administración (el motor)
- *        `pago`: { metodo: efectivo|tarjeta|yape|plin|transferencia|otro, propina?, recibido? } (5.32); responde con `recibo`
+ *        `pago`: { metodo: efectivo|tarjeta|yape|plin|transferencia|otro, propina?, recibido?, factura?, rucReferencia? } (5.32); responde con `recibo`
+ *        `factura` (5.86): true|false, ¿el cliente pide factura?; con true, `rucReferencia` (RUC o referencia, hasta 30) es obligatorio.
+ *        Sin `metodo` solo se admite si lo declarado es la factura; el recibo la guarda en `factura: { requerida, rucReferencia }`
  *   POST /pedidos/:code/cobrar-items  { items: ["DOC_ITEM-…"], pago? }   igual (cuenta dividida: cobra solo esos ítems entregados;
  *        el pedido se cierra solo cuando no queda nada por cobrar)
  *   POST /pedidos/:code/anular  { motivo: { codigo, detalle? } }   igual

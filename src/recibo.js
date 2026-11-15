@@ -21,7 +21,34 @@ const malo = (m) => new ErrorPedido("DATOS_INVALIDOS", m);
 const centavos = (n) => Math.round(n * 100);
 const dosDecimales = (n) => Math.abs(centavos(n) / 100 - n) < 1e-9;
 const dinero = (c) => c / 100;
-const SIN_PAGO = Object.freeze({ metodo: null, propina: 0, recibido: null });
+const SIN_PAGO = Object.freeze({ metodo: null, propina: 0, recibido: null, factura: null });
+
+export const MAX_RUC_REFERENCIA = 30;
+const RE_RUC_REFERENCIA = /^[\p{L}\p{N}][\p{L}\p{N} .\-/]*$/u;
+
+/**
+ * Si el cliente pide factura (5.86). `factura` es true/false y, solo con true, `rucReferencia` es obligatorio: el RUC del
+ * cliente o, si no lo tiene a la mano, una referencia para emitirla después (letras, números, espacios y . - /; hasta 30).
+ * Devuelve `{ requerida, rucReferencia }`, o null si no se declaró nada (cobros anteriores o sin esa pregunta).
+ */
+export function validarFactura(factura, rucReferencia) {
+  if (factura === undefined || factura === null) {
+    if (rucReferencia !== undefined && rucReferencia !== null && String(rucReferencia).trim() !== "")
+      throw malo("pago.rucReferencia: solo se anota si se pide factura (pago.factura: true)");
+    return null;
+  }
+  if (typeof factura !== "boolean") throw malo("pago.factura: true o false");
+  if (!factura) {
+    if (rucReferencia !== undefined && rucReferencia !== null && String(rucReferencia).trim() !== "")
+      throw malo("pago.rucReferencia: solo se anota si se pide factura (pago.factura: true)");
+    return { requerida: false, rucReferencia: null };
+  }
+  const t = typeof rucReferencia === "string" ? rucReferencia.trim().replace(/\s+/g, " ") : "";
+  if (!t) throw malo("pago.rucReferencia: obligatorio cuando el cliente pide factura (RUC o referencia)");
+  if (t.length > MAX_RUC_REFERENCIA) throw malo(`pago.rucReferencia: hasta ${MAX_RUC_REFERENCIA} caracteres`);
+  if (!RE_RUC_REFERENCIA.test(t)) throw malo("pago.rucReferencia: solo letras, números, espacios y . - /");
+  return { requerida: true, rucReferencia: t };
+}
 
 function monto(v, nombre, { max, positivo = false }) {
   if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || (positivo && v === 0) || v > max || !dosDecimales(v))
@@ -38,8 +65,12 @@ function monto(v, nombre, { max, positivo = false }) {
 export function validarPago(pago, ventaCentavos = null) {
   if (pago === undefined || pago === null) return { ...SIN_PAGO };
   if (typeof pago !== "object" || Array.isArray(pago)) throw malo("pago debe ser un objeto");
-  const extra = Object.keys(pago).filter((k) => !["metodo", "propina", "recibido"].includes(k));
+  const extra = Object.keys(pago).filter((k) => !["metodo", "propina", "recibido", "factura", "rucReferencia"].includes(k));
   if (extra.length) throw malo(`pago: campos no admitidos (${extra.join(", ")})`);
+  const factura = validarFactura(pago.factura, pago.rucReferencia);
+  // La forma de pago puede quedar sin indicar solo cuando lo que se declara es la factura (5.86); entonces no hay propina ni efectivo
+  if ((pago.metodo === undefined || pago.metodo === null) && factura !== null && (pago.propina ?? null) === null && (pago.recibido ?? null) === null)
+    return { metodo: null, propina: 0, recibido: null, factura };
   if (!Object.hasOwn(METODOS_PAGO, pago.metodo)) throw malo(`pago.metodo: uno de ${Object.keys(METODOS_PAGO).join(", ")}`);
   const propina = pago.propina === undefined || pago.propina === null ? 0 : monto(pago.propina, "pago.propina", { max: 1_000_000 });
   let recibido = null;
@@ -50,7 +81,7 @@ export function validarPago(pago, ventaCentavos = null) {
     const faltan = ventaCentavos + centavos(propina) - centavos(recibido);
     if (faltan > 0) throw malo(`pago.recibido: no alcanza (faltan ${dinero(faltan).toFixed(2)})`);
   }
-  return { metodo: pago.metodo, propina, recibido };
+  return { metodo: pago.metodo, propina, recibido, factura };
 }
 
 const sumar = (cs) => (cs.some((c) => c === null) ? null : cs.reduce((n, c) => n + c, 0));
@@ -125,6 +156,8 @@ export function armarRecibo({ pedido, items, pago = SIN_PAGO, empresa = null, mo
     metodo: pago.metodo ?? null,
     recibido: pago.recibido ?? null,
     vuelto: vuelto === null ? null : dinero(vuelto),
+    // ¿El cliente pidió factura? (5.86) { requerida, rucReferencia }; null si no se preguntó
+    factura: pago.factura ?? null,
   };
 }
 
@@ -153,6 +186,7 @@ export function reciboDto(d) {
     metodoTexto: x.metodo ? METODOS_PAGO[x.metodo] ?? x.metodo : null,
     recibido: x.recibido ?? null,
     vuelto: x.vuelto ?? null,
+    factura: x.factura ? { requerida: x.factura.requerida === true, rucReferencia: x.factura.rucReferencia ?? null } : null,
   };
 }
 

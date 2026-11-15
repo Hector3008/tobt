@@ -1084,6 +1084,19 @@ describe("recibos y cuenta (núcleo falso)", () => {
     assert.deepEqual(r.recibo.lineas[0].descuento, { vale: "K7M2QX", beneficio: "Café gratis", monto: 6.5 });
   });
 
+  it("el cobro guarda si el cliente pidió factura y su RUC o referencia (5.86), y no deja cobrar con una factura incompleta", async () => {
+    nuevo();
+    const c = await mesa();
+    await assert.rejects(svc.pedidos.cobrarItems(m(CAJERO, c.code, { items: [I1], pago: { metodo: "yape", factura: true } })), cod("DATOS_INVALIDOS"));
+    assert.equal((await svc.pedidos.recibos(m(SOLO_LEER, c.code))).length, 0, "no se cobró nada");
+    const a = await svc.pedidos.cobrarItems(m(CAJERO, c.code, { items: [I1], pago: { metodo: "yape", factura: true, rucReferencia: " 20123456789 " } }));
+    assert.deepEqual(a.recibo.factura, { requerida: true, rucReferencia: "20123456789" });
+    const b = await svc.pedidos.cobrarItems(m(CAJERO, c.code, { items: [I2], pago: { factura: false } }));
+    assert.deepEqual([b.recibo.factura, b.recibo.metodo], [{ requerida: false, rucReferencia: null }, null]);
+    const lista = await svc.pedidos.recibos(m(SOLO_LEER, c.code));
+    assert.deepEqual(lista.map((r) => r.factura?.requerida), [true, false]);
+  });
+
   it("el recibo guarda el logo y los datos de la empresa de ese momento; la cuenta, los de ahora (5.34)", async () => {
     nuevo();
     const empresa = { _id: E, nombre: "Café Central", pais: "PE", datos: { razonSocial: "Café Central SAC", idFiscal: "20123456789", direccion: "Av. 1", pie: "Gracias" }, marca: { logo: "https://e.com/l.png" } };

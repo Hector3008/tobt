@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { ErrorPedido } from "../src/errores.js";
-import { METODOS_PAGO, armarCuenta, armarRecibo, emisor, reciboDto, validarPago } from "../src/recibo.js";
+import { METODOS_PAGO, MAX_RUC_REFERENCIA, validarFactura, armarCuenta, armarRecibo, emisor, reciboDto, validarPago } from "../src/recibo.js";
 
 const malo = (fn, re) => assert.throws(fn, (e) => e instanceof ErrorPedido && e.codigo === "DATOS_INVALIDOS" && (!re || re.test(e.message)));
 const item = (code, nombre, cantidad, precio, extra = {}) => ({ code, nombre, codigo: nombre.toUpperCase(), cantidad, precio, subtotal: cantidad * precio, descuento: null, cliente: null, estado: "pagado", ...extra });
@@ -9,12 +9,12 @@ const pedido = { code: "PD-0000001", estado: "abierto", canal: "salon", mesa: "4
 
 describe("validarPago", () => {
   it("sin pago: método sin indicar y sin propina", () => {
-    assert.deepEqual(validarPago(undefined), { metodo: null, propina: 0, recibido: null });
-    assert.deepEqual(validarPago(null), { metodo: null, propina: 0, recibido: null });
+    assert.deepEqual(validarPago(undefined), { metodo: null, propina: 0, recibido: null, factura: null });
+    assert.deepEqual(validarPago(null), { metodo: null, propina: 0, recibido: null, factura: null });
   });
   it("método obligatorio y de la lista; propina opcional", () => {
-    assert.deepEqual(validarPago({ metodo: "yape" }), { metodo: "yape", propina: 0, recibido: null });
-    assert.deepEqual(validarPago({ metodo: "tarjeta", propina: 2.5 }), { metodo: "tarjeta", propina: 2.5, recibido: null });
+    assert.deepEqual(validarPago({ metodo: "yape" }), { metodo: "yape", propina: 0, recibido: null, factura: null });
+    assert.deepEqual(validarPago({ metodo: "tarjeta", propina: 2.5 }), { metodo: "tarjeta", propina: 2.5, recibido: null, factura: null });
     for (const m of Object.keys(METODOS_PAGO)) assert.equal(validarPago({ metodo: m }).metodo, m);
     malo(() => validarPago({}), /metodo/);
     malo(() => validarPago({ metodo: "cripto" }), /metodo/);
@@ -30,7 +30,7 @@ describe("validarPago", () => {
     malo(() => validarPago(["yape"]), /objeto/);
   });
   it("el efectivo recibido solo en efectivo, y tiene que alcanzar con la propina", () => {
-    assert.deepEqual(validarPago({ metodo: "efectivo", recibido: 50 }, 3000), { metodo: "efectivo", propina: 0, recibido: 50 });
+    assert.deepEqual(validarPago({ metodo: "efectivo", recibido: 50 }, 3000), { metodo: "efectivo", propina: 0, recibido: 50, factura: null });
     assert.equal(validarPago({ metodo: "efectivo", recibido: 32, propina: 2 }, 3000).recibido, 32);
     malo(() => validarPago({ metodo: "efectivo", recibido: 31, propina: 2 }, 3000), /no alcanza \(faltan 1.00\)/);
     malo(() => validarPago({ metodo: "tarjeta", recibido: 50 }, 3000), /efectivo/);
@@ -113,5 +113,46 @@ describe("encabezado del recibo (5.34)", () => {
     const d = reciboDto({ code: "RC-1", payload: { doc: { pedidoCode: "PD-1", empresa: { nombre: "Café Central" }, lineas: [] } } });
     assert.deepEqual(d.empresa, { nombre: "Café Central", razonSocial: null, idFiscal: null, etiquetaIdFiscal: "RUC", direccion: null, telefono: null, pie: null, logo: null });
     assert.equal(reciboDto({ code: "RC-2", payload: { doc: {} } }).empresa, null);
+  });
+});
+
+describe("factura en el cobro (5.86)", () => {
+  it("sin declarar nada, no hay factura; con «no», queda anotado que no", () => {
+    assert.equal(validarFactura(undefined, undefined), null);
+    assert.deepEqual(validarFactura(false), { requerida: false, rucReferencia: null });
+    assert.deepEqual(validarFactura(false, ""), { requerida: false, rucReferencia: null });
+    assert.equal(validarPago({ metodo: "yape" }).factura, null);
+  });
+  it("con «sí», el RUC o referencia es obligatorio, se limpia y se limita", () => {
+    assert.deepEqual(validarFactura(true, "  20123456789 "), { requerida: true, rucReferencia: "20123456789" });
+    assert.deepEqual(validarFactura(true, "Mesa 4  /  Juan-P."), { requerida: true, rucReferencia: "Mesa 4 / Juan-P." });
+    malo(() => validarFactura(true), /obligatorio/);
+    malo(() => validarFactura(true, "   "), /obligatorio/);
+    malo(() => validarFactura(true, "x".repeat(MAX_RUC_REFERENCIA + 1)), /hasta 30/);
+    malo(() => validarFactura(true, "20123; DROP"), /solo letras/);
+    malo(() => validarFactura(true, "<b>1</b>"), /solo letras/);
+    malo(() => validarFactura(true, 20123456789), /obligatorio/);
+  });
+  it("el RUC no se admite sin pedir factura, y `factura` es booleano", () => {
+    malo(() => validarFactura(false, "20123456789"), /solo se anota si se pide factura/);
+    malo(() => validarFactura(undefined, "20123456789"), /solo se anota si se pide factura/);
+    malo(() => validarFactura("si", "1"), /true o false/);
+    malo(() => validarFactura(1, "1"), /true o false/);
+  });
+  it("dentro del pago: con método, y sin método solo si lo único que se declara es la factura", () => {
+    assert.deepEqual(validarPago({ metodo: "yape", factura: true, rucReferencia: "20123456789" }), { metodo: "yape", propina: 0, recibido: null, factura: { requerida: true, rucReferencia: "20123456789" } });
+    assert.deepEqual(validarPago({ factura: true, rucReferencia: "20123456789" }), { metodo: null, propina: 0, recibido: null, factura: { requerida: true, rucReferencia: "20123456789" } });
+    assert.deepEqual(validarPago({ factura: false }), { metodo: null, propina: 0, recibido: null, factura: { requerida: false, rucReferencia: null } });
+    malo(() => validarPago({ factura: true, rucReferencia: "1", propina: 2 }), /metodo/);
+    malo(() => validarPago({ factura: true }), /obligatorio/);
+    malo(() => validarPago({ metodo: "yape", factura: true }), /obligatorio/);
+  });
+  it("queda en el recibo y en su DTO; los recibos anteriores no la traen", () => {
+    const items = [item("DOC_ITEM-1", "Café", 2, 6.5)];
+    const r = armarRecibo({ pedido, items, pago: validarPago({ metodo: "yape", factura: true, rucReferencia: "20123456789" }) });
+    assert.deepEqual(r.factura, { requerida: true, rucReferencia: "20123456789" });
+    assert.equal(armarRecibo({ pedido, items }).factura, null);
+    assert.deepEqual(reciboDto({ code: "RC-1", payload: { doc: r } }).factura, { requerida: true, rucReferencia: "20123456789" });
+    assert.equal(reciboDto({ code: "RC-0", payload: { doc: { total: 1 } } }).factura, null);
   });
 });

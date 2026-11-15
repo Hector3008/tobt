@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, mensajeDeError } from "./api.js";
 import { formatoDinero } from "./pedidos.js";
-import { encabezadoRecibo, formatoFechaHora, notaRecibo, textoDescuentoLinea, textoPromocionesLinea, tituloRecibo } from "./recibos.js";
+import { encabezadoRecibo, formatoFechaHora, notaRecibo, textoDescuentoLinea, textoFactura, textoPromocionesLinea, tituloRecibo } from "./recibos.js";
 
 const destino = (r) => {
   if (r.canal === "salon") return r.mesa ? `Mesa ${r.mesa}` : "Salón";
@@ -78,6 +78,7 @@ export default function Recibo({ codigo, pedido, alCerrar }) {
               {r.propina > 0 && (<><dt>Propina</dt><dd>{$(r.propina)}</dd></>)}
               <dt className="rs-recibo__total">Total</dt><dd className="rs-recibo__total">{$(r.total)}</dd>
               {r.metodoTexto && (<><dt>Pago</dt><dd>{r.metodoTexto}</dd></>)}
+              {textoFactura(r) && (<><dt>Factura</dt><dd>{textoFactura(r)}</dd></>)}
               {r.recibido != null && (<><dt>Recibido</dt><dd>{$(r.recibido)}</dd></>)}
               {r.vuelto != null && (<><dt>Vuelto</dt><dd>{$(r.vuelto)}</dd></>)}
             </>

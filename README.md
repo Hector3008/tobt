@@ -69,6 +69,10 @@ Necesita el kardex del núcleo (5.75, `core.kardex`); sin él, tobt funciona igu
 - Al **anular** un ítem (o el pedido) que sigue en cocina, el insumo vuelve al kardex. Si ya salió de cocina (lista o entregado) se preparó y el consumo se queda.
 - Las líneas libres (sin código del catálogo) no descuentan nada.
 
+## Factura en el cobro (5.86)
+
+Al cobrar se declara si el cliente va a requerir factura: `pago.factura` (`true`/`false`) y, con `true`, `pago.rucReferencia` (RUC o referencia, obligatorio, hasta 30 caracteres: letras, números, espacios y `. - /`). La forma de pago puede quedar sin indicar si lo único que se declara es la factura. El recibo guarda `factura: { requerida, rucReferencia }` (los anteriores traen `null`) y lo muestra; el recibo sigue siendo no fiscal: la factura se emite aparte. `GET /reportes/ventas` suma `resumen.recibosConFactura` y `resumen.cobradoConFactura` y trae `facturas` (hasta 1000 recibos con factura pedida: recibo, fecha, pedido, RUC o referencia, importes, forma de pago, cliente) para que contabilidad sepa qué emitir.
+
 ## Reportes del inventario (5.78)
 
 `GET /reportes/inventario?desde=AAAA-MM-DD&hasta=&dias=N` (permisos `reporte:leer` y `kardex:leer`; mismas fechas y zona horaria que el reporte de ventas). Devuelve:
