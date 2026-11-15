@@ -1,0 +1,58 @@
+diff --git a/docs/kardex.md b/docs/kardex.md
+index aaae125..7930ca9 100644
+--- a/docs/kardex.md
++++ b/docs/kardex.md
+@@ -22,7 +22,7 @@ Libro de movimientos de insumos con saldo y costo promedio. Módulo `src/kardex/
+ Costo promedio ponderado: las entradas lo recalculan (si no había existencia, pasa a ser el costo de la entrada); las salidas no lo cambian. **Nunca bloquea**: un consumo que deja el saldo en negativo se registra y se informa (`negativo`, `bajoMinimo`).
+ 
+ ## Corregir un movimiento (5.84)
+-El libro no se edita. Para corregir una compra, merma, ajuste o saldo inicial mal puesto se **anula** (`POST /kardex/movimientos/:movimientoId/anular` con `{ detalle }`, `kardex:gestionar`) y se registra de nuevo el correcto. La anulación es otro movimiento de signo contrario al mismo costo: si el original entró, se quita su valor del inventario y el promedio vuelve a lo que era sin él; si salió, vuelve a entrar al costo con que salió. El original queda en el libro marcado `anulado` (`GET /movimientos` lo informa). Un movimiento se anula una sola vez; no se anula una anulación; un consumo se devuelve anulando el ítem del pedido. Si la anulación deja el saldo en negativo se registra igual y se avisa.
++El libro no se edita. Para corregir una compra, merma, ajuste o saldo inicial mal puesto se **anula** (`POST /kardex/movimientos/:movimientoId/anular` con `{ detalle }`, `kardex:gestionar`) y se registra de nuevo el correcto. La anulación es otro movimiento de signo contrario al mismo costo: si el original entró, se quita su valor del inventario y el promedio vuelve a lo que era sin él; si salió, vuelve a entrar al costo con que salió. La anulación guarda `anulaA` y `anulaTipo` (el tipo del original, que usan los reportes). El original queda en el libro marcado `anulado` (`GET /movimientos` lo informa). Un movimiento se anula una sola vez; no se anula una anulación; un consumo se devuelve anulando el ítem del pedido. Si la anulación deja el saldo en negativo se registra igual y se avisa.
+ 
+ ## Seguridad de los datos
+ - Cada insumo lleva su cuenta con `secuencia` 1, 2, 3… El índice único `{insumo, secuencia}` ordena lo simultáneo: el que llega segundo reintenta con el saldo nuevo (hasta 8 veces, luego `CONFLICTO`).
+diff --git a/src/kardex/index.js b/src/kardex/index.js
+index 69d3721..de91de9 100644
+--- a/src/kardex/index.js
++++ b/src/kardex/index.js
+@@ -70,6 +70,7 @@ export function crearServicioKardex({ Empresa, Insumo, MovimientoKardex }, auth)
+     presentacion: m.presentacion ?? null,
+     referencia: m.referencia ?? null,
+     anulaA: m.anulaA ? String(m.anulaA) : null,
++    anulaTipo: m.anulaTipo ?? null,
+     detalle: m.detalle ?? null,
+     creadoPor: m.creadoPor ? String(m.creadoPor) : null,
+     ts: m.ts,
+@@ -398,7 +399,7 @@ export function crearServicioKardex({ Empresa, Insumo, MovimientoKardex }, auth)
+     const r = await aplicar({
+       empresaId, insumoId, tipo: "anulacion", signo: original.cantidad > 0 ? -1 : 1, cantidad: Math.abs(original.cantidad),
+       detalle: motivo, referencia, creadoPor: actor.usuarioId ?? null,
+-      calcular: (estado, ultimo) => deshacerMovimiento(estado, original, String(ultimo?._id) === String(original._id) ? previo : null), extra: { anulaA: movimientoId },
++      calcular: (estado, ultimo) => deshacerMovimiento(estado, original, String(ultimo?._id) === String(original._id) ? previo : null), extra: { anulaA: movimientoId, anulaTipo: original.tipo },
+     });
+     if (r.yaRegistrado) throw new ErrorKardex("ESTADO_INVALIDO", "este movimiento ya fue anulado");
+     return respuesta(insumo, r);
+diff --git a/src/kardex/modelo.js b/src/kardex/modelo.js
+index 136a28f..bf30255 100644
+--- a/src/kardex/modelo.js
++++ b/src/kardex/modelo.js
+@@ -41,6 +41,7 @@ export const movimientoKardexSchema = new mongoose.Schema(
+     existenciaDespues: { type: Number, required: true },
+     costoPromedioDespues: { type: Number, required: true },
+     presentacion: { type: { _id: false, nombre: String, cantidad: Number, factor: Number }, default: null }, // lo que se escribió, si fue en otra presentación
++    anulaTipo: { type: String, default: null }, // en una anulación: el tipo del movimiento que deshace (los reportes la clasifican con él)
+     anulaA: { type: ObjectId, default: null }, // en una anulación: el movimiento que deshace (su referencia es ANUL-<id>)
+     referencia: { type: String, default: null }, // el documento que originó el movimiento (por ejemplo DOC_ITEM-0000123)
+     detalle: { type: String, default: null },
+diff --git a/test/kardex-servicio.test.js b/test/kardex-servicio.test.js
+index b4789e3..b40618b 100644
+--- a/test/kardex-servicio.test.js
++++ b/test/kardex-servicio.test.js
+@@ -341,6 +341,7 @@ describe("anular y corregir movimientos (5.84)", () => {
+     const r = await anular(mala.movimiento.id);
+     assert.deepEqual([r.existencia, r.costoPromedio, r.movimiento.tipo, r.movimiento.cantidad], [1000, 0.08, "anulacion", -1000000]);
+     assert.equal(r.movimiento.anulaA, mala.movimiento.id);
++    assert.equal(r.movimiento.anulaTipo, "compra");
+     assert.equal(r.movimiento.detalle, "me equivoqué");
+     const s = await saldo();
+     assert.deepEqual([s.existencia, s.costoPromedio], [1000, 0.08]);
