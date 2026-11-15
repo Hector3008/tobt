@@ -69,6 +69,14 @@ Necesita el kardex del núcleo (5.75, `core.kardex`); sin él, tobt funciona igu
 - Al **anular** un ítem (o el pedido) que sigue en cocina, el insumo vuelve al kardex. Si ya salió de cocina (lista o entregado) se preparó y el consumo se queda.
 - Las líneas libres (sin código del catálogo) no descuentan nada.
 
+## Reportes del inventario (5.78)
+
+`GET /reportes/inventario?desde=AAAA-MM-DD&hasta=&dias=N` (permisos `reporte:leer` y `kardex:leer`; mismas fechas y zona horaria que el reporte de ventas). Devuelve:
+
+- `insumos`: por insumo, lo que entró (`compras`), salió por pedidos (`consumo`), se perdió (`merma`) y se ajustó por conteo (`ajuste`) en el rango, con cantidad y valor; las anulaciones restan del tipo que deshacen.
+- `platos`: lo cobrado en el rango por plato, con su **costo real** (lo que descontó el kardex con el código del ítem, `consumo` menos `reversa`, al costo promedio de ese momento), margen y margen %. Un ítem sin consumo (plato sin receta o cobrado antes del kardex) no tiene costo: se cuenta en `itemsSinCosto` y su venta queda fuera del margen.
+- `resumen`: compras, consumo, mermas, ajustes, ventas, `costoDeVentas`, margen y lo que quedó sin costo.
+
 ## Pruebas
 
 ```

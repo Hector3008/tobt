@@ -54,6 +54,7 @@ function responder(res, e, next) {
  *
  * Reportes (5.35)
  *   GET  /reportes/ventas (?desde=AAAA-MM-DD &hasta= &dias=N &gran=dia|semana|mes)   reporte:leer   ventas cobradas (ítems pagados) resumidas
+ *   GET  /reportes/inventario (?desde= &hasta= &dias=N)                              reporte:leer + kardex:leer   consumo de insumos, costo de ventas y margen por plato (5.78)
  *        por tiempo, categoría, mesero (quien cobra), cliente, plato, hora y canal, más propinas y formas de pago (recibos)
  *
  * Recetas (5.76; necesitan el kardex del núcleo, 5.75)
@@ -68,7 +69,7 @@ function responder(res, e, next) {
  */
 export function montarRutas(router, core, servicio) {
   const { autenticar, requierePermiso, eventos, auth } = core;
-  const { pedidos, items, vales, recibos, reportes, recetas } = servicio;
+  const { pedidos, items, vales, recibos, reportes, reportesInventario, recetas } = servicio;
 
   const envolver = (escribe, fn) => async (req, res, next) => {
     try {
@@ -191,6 +192,18 @@ export function montarRutas(router, core, servicio) {
         res.setHeader("Cache-Control", "no-store");
         const { desde, hasta, dias, gran } = req.query ?? {};
         res.status(200).json(await reportes.ventas({ ...base(req), desde, hasta, dias, gran }));
+      }),
+    );
+
+  // Inventario (5.78): igual que el de ventas y, además, el servicio exige `kardex:leer`.
+  if (reportesInventario)
+    router.get(
+      "/reportes/inventario",
+      ...con("reporte:leer", "administracion"),
+      envolver(false, async (req, res) => {
+        res.setHeader("Cache-Control", "no-store");
+        const { desde, hasta, dias } = req.query ?? {};
+        res.status(200).json(await reportesInventario.inventario({ ...base(req), desde, hasta, dias }));
       }),
     );
 
