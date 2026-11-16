@@ -88,7 +88,8 @@ export function crearFacturas({ conEmpresa, permite, documentos, modelos }) {
   }
 
   /** Pendientes / emitidas / todas. Sin fechas, todo lo que haya (así no se pierde un pendiente antiguo). */
-  async function listar({ empresaId, actor, estado = "pendientes", desde, hasta, dias }) {
+  /** `soloResumen` (5.89): solo los contadores, sin la lista; es lo que usa Inicio para el aviso de pendientes. */
+  async function listar({ empresaId, actor, estado = "pendientes", desde, hasta, dias, soloResumen = false }) {
     exigir(actor, "documento:leer");
     if (!Object.hasOwn(ESTADOS, estado)) throw new ErrorPedido("DATOS_INVALIDOS", `estado: uno de ${Object.keys(ESTADOS).join(", ")}`);
     const empresa = await empresaDe(empresaId);
@@ -97,7 +98,7 @@ export function crearFacturas({ conEmpresa, permite, documentos, modelos }) {
     const rango = conRango ? validarConsulta({ desde, hasta, dias }, { zona }) : null;
     return await conEmpresa(empresaId, async () => {
       const [lista, cuentas] = await Promise.all([
-        modelos.Documento.aggregate(pipelineListaFacturas({ estado, rango })),
+        soloResumen ? [] : modelos.Documento.aggregate(pipelineListaFacturas({ estado, rango })),
         modelos.Documento.aggregate(pipelineResumenFacturas(rango)),
       ]);
       const usuarios = await nombres(lista);

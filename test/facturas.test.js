@@ -79,6 +79,11 @@ describe("facturas pedidas (5.88)", () => {
     await assert.rejects(f.listar({ empresaId: "e1", actor: { usuarioId: "u3", permisos: [] } }), (x) => x.codigo === "PERMISO_INSUFICIENTE");
   });
 
+  it("solo el resumen (para el aviso de Inicio): los contadores sin la lista", async () => {
+    const r = await f.listar({ empresaId: "e1", actor: VER, soloResumen: true });
+    assert.deepEqual([r.facturas, r.truncado, r.resumen.pendientes.cantidad, r.resumen.emitidas.cantidad], [[], false, 2, 1]);
+  });
+
   it("marcar: pasa a facturado con número, quién y cuándo; queda en el historial", async () => {
     const r = await f.marcarEmitida({ empresaId: "e1", actor: ADMIN, code: "RC-0000001", numero: " F001-77 " });
     assert.equal(r.estado, "emitida");

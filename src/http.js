@@ -55,8 +55,8 @@ function responder(res, e, next) {
  *   GET  /recibos/:code                                 documento:leer   un recibo de pago (RC-…)
  *
  * Reportes (5.35)
- *   GET  /reportes/ventas (?desde=AAAA-MM-DD &hasta= &dias=N &gran=dia|semana|mes)   reporte:leer   ventas cobradas (ítems pagados) resumidas
- *   GET  /facturas (?estado=pendientes|emitidas|todas &desde= &hasta= &dias=N)          documento:leer   recibos con factura pedida (5.88); sin fechas, todos
+ *   GET  /reportes/ventas (?desde=AAAA-MM-DD &hasta= &dias=N &gran=dia|semana|mes &completo=1)   reporte:leer   ventas cobradas (ítems pagados) resumidas
+ *   GET  /facturas (?estado=pendientes|emitidas|todas &desde= &hasta= &dias=N &resumen=1) documento:leer   recibos con factura pedida (5.88); sin fechas, todos
  *   POST /facturas/:code/emitida { numero? }                                            documento:editar marca la factura como emitida (el número es obligatorio si la empresa lo pide)
  *   POST /facturas/:code/deshacer { motivo: { codigo: error_de_marca|factura_anulada|otro, detalle? } }   documento:editar
  *   GET  /reportes/inventario (?desde= &hasta= &dias=N)                              reporte:leer + kardex:leer   consumo de insumos, costo de ventas y margen por plato (5.78)
@@ -195,8 +195,8 @@ export function montarRutas(router, core, servicio) {
       ...con("reporte:leer", "administracion"),
       envolver(false, async (req, res) => {
         res.setHeader("Cache-Control", "no-store");
-        const { desde, hasta, dias, gran } = req.query ?? {};
-        res.status(200).json(await reportes.ventas({ ...base(req), desde, hasta, dias, gran }));
+        const { desde, hasta, dias, gran, completo } = req.query ?? {};
+        res.status(200).json(await reportes.ventas({ ...base(req), desde, hasta, dias, gran, completo }));
       }),
     );
 
@@ -219,8 +219,8 @@ export function montarRutas(router, core, servicio) {
       ...con("documento:leer", "administracion"),
       envolver(false, async (req, res) => {
         res.setHeader("Cache-Control", "no-store");
-        const { estado, desde, hasta, dias } = req.query ?? {};
-        res.status(200).json(await facturas.listar({ ...base(req), ...(estado ? { estado } : {}), desde, hasta, dias }));
+        const { estado, desde, hasta, dias, resumen } = req.query ?? {};
+        res.status(200).json(await facturas.listar({ ...base(req), ...(estado ? { estado } : {}), desde, hasta, dias, soloResumen: resumen === "1" || resumen === "true" }));
       }),
     );
     router.post(

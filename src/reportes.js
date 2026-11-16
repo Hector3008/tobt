@@ -20,6 +20,8 @@ export const TOP_PLATOS = 10;
 export const TOP_CLIENTES = 10;
 export const TOP_CATEGORIAS = 8;
 export const TOP_PROMOCIONES = 8;
+// Con `completo=1` (5.89, para exportar a Excel) no se acota a los primeros: se devuelven todos hasta este tope por lista.
+export const MAX_COMPLETO = 5000;
 
 // País de la empresa (ISO de 2 letras) → zona horaria. Un país con varias zonas usa la de su capital; uno que no
 // está aquí agrupa en UTC (y la respuesta lo dice en `zona`, para no pasar un día por otro sin avisar).
@@ -149,7 +151,7 @@ export function cubetasDelRango(desde, hasta, gran) {
 // ---------- validación de lo que pide el cliente ----------
 
 /**
- * `{ desde?, hasta?, dias?, gran? }` → rango en fechas locales, instantes UTC y granularidad.
+ * `{ desde?, hasta?, dias?, gran?, completo? }` → rango en fechas locales, instantes UTC y granularidad.
  * Sin `hasta` es hoy (según la zona de la empresa); sin `desde`, `dias` días (30 por defecto) terminando en `hasta`.
  * `dias` es lo que usan los atajos «7 días», «30 días»: así «hoy» lo decide el servidor y no el reloj del navegador.
  */
@@ -170,8 +172,9 @@ export function validarConsulta(q, { zona, ahora = Date.now() }) {
   const dias = diasEntre(desde, hasta) + 1;
   if (dias < 1) throw malo("desde no puede ser posterior a hasta");
   if (dias > MAX_DIAS) throw malo(`el rango no puede pasar de ${MAX_DIAS} días`);
+  const completo = [true, "1", "true"].includes(q?.completo);
   return {
-    desde, hasta, gran, dias,
+    desde, hasta, gran, dias, completo,
     desdeTs: new Date(inicioDelDia(desde, zona)),
     hastaTs: new Date(inicioDelDia(sumarDias(hasta, 1), zona)), // exclusivo
   };
@@ -184,7 +187,7 @@ export function validarConsulta(q, { zona, ahora = Date.now() }) {
  * `{ empresaId, tipo, estado }`); el plugin de multiempresa antepone el filtro de la empresa. El `$lookup` trae el
  * canal del pedido y se limita a la misma empresa (el código `PD-0000001` existe en todas).
  */
-export function pipelineVentas({ desdeTs, hastaTs, zona: zonaEmpresa }) {
+export function pipelineVentas({ desdeTs, hastaTs, completo = false, zona: zonaEmpresa }) {
   // MongoDB acepta nombres de zona (`America/Lima`) y desfases (`+00:00`); UTC va como desfase, que no depende del alias.
   const zona = zonaEmpresa === "UTC" ? "+00:00" : zonaEmpresa;
   // El servidor agrupa siempre por DÍA local (a lo más 366 filas); la semana y el mes se arman aquí con `claveDe`, así
@@ -237,13 +240,13 @@ export function pipelineVentas({ desdeTs, hastaTs, zona: zonaEmpresa }) {
           { $match: { "snapshot.cliente.clienteId": { $ne: null } } },
           { $group: { _id: "$snapshot.cliente.clienteId", nombre: { $first: "$snapshot.cliente.nombre" }, ventas: suma, items: { $sum: 1 } } },
           { $sort: { ventas: -1 } },
-          { $limit: TOP_CLIENTES },
+          { $limit: completo ? MAX_COMPLETO : TOP_CLIENTES },
         ],
         sinCliente: [{ $match: sinCliente }, { $group: { _id: null, ventas: suma, items: { $sum: 1 } } }],
         platos: [
           { $group: { _id: "$plato", nombre: { $first: "$snapshot.item.nombre" }, categoria: { $first: "$snapshot.item.categoria" }, cantidad: { $sum: "$unidades" }, ventas: suma } },
           { $sort: { cantidad: -1, ventas: -1 } },
-          { $limit: TOP_PLATOS },
+          { $limit: completo ? MAX_COMPLETO : TOP_PLATOS },
         ],
         // Una fila por cada promoción aplicada a un ítem cobrado (un ítem sin promociones no entra).
         promociones: [
@@ -345,7 +348,7 @@ export function armarReporte({ facet, recibos, facturas = [], usuarios, empresa,
       nombre: c._id ?? "Sin categoría", sinCategoria: c._id === null, ventas: redondear(c.ventas), items: c.items,
       porcentaje: participacion(c.ventas, resumen.ventas),
     })),
-    TOP_CATEGORIAS,
+    consulta.completo ? Infinity : TOP_CATEGORIAS,
   ).map((c) => ({ ...c, porcentaje: c.otros ? participacion(c.ventas, ventas) : c.porcentaje }));
 
   const meseros = (f.meseros ?? []).map((m) => {
@@ -389,8 +392,8 @@ export function armarReporte({ facet, recibos, facturas = [], usuarios, empresa,
   }));
   const ahorro = redondear(filasPromos.reduce((n, p) => n + p.ahorro, 0));
   const antes = redondear(ventas + ahorro);
-  const visibles = filasPromos.slice(0, TOP_PROMOCIONES).map((p) => ({ ...p, porcentaje: participacion(p.ahorro, ahorro) }));
-  const resto = filasPromos.slice(TOP_PROMOCIONES);
+  const visibles = filasPromos.slice(0, consulta.completo ? filasPromos.length : TOP_PROMOCIONES).map((p) => ({ ...p, porcentaje: participacion(p.ahorro, ahorro) }));
+  const resto = consulta.completo ? [] : filasPromos.slice(TOP_PROMOCIONES);
   const promociones = {
     ahorro,
     ventasAntes: antes, // lo que habría sido sin promociones
@@ -411,7 +414,7 @@ export function armarReporte({ facet, recibos, facturas = [], usuarios, empresa,
   }));
 
   return {
-    desde: consulta.desde, hasta: consulta.hasta, gran: consulta.gran, dias: consulta.dias, zona,
+    desde: consulta.desde, hasta: consulta.hasta, gran: consulta.gran, dias: consulta.dias, zona, completo: consulta.completo === true,
     moneda: moneda ?? empresa?.moneda ?? null,
     resumen: {
       ventas, items: resumen.items, unidades: resumen.unidades, pedidos,
