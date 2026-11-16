@@ -296,7 +296,7 @@ export function pipelineFacturas({ desdeTs, hastaTs }) {
       $project: {
         code: 1, createdAt: 1, rucReferencia: "$payload.doc.factura.rucReferencia", pedidoCode: "$payload.doc.pedidoCode",
         subtotal: "$payload.doc.subtotal", propina: "$payload.doc.propina", total: "$payload.doc.total", metodo: "$payload.doc.metodo",
-        clientes: "$payload.doc.clientes",
+        clientes: "$payload.doc.clientes", estado: 1, emision: "$payload.doc.factura.emision",
       },
     },
   ];
@@ -428,6 +428,8 @@ export function armarReporte({ facet, recibos, facturas = [], usuarios, empresa,
       subtotal: redondear(f.subtotal), propina: redondear(f.propina), total: redondear(f.total ?? (Number(f.subtotal) || 0) + (Number(f.propina) || 0)),
       metodo: f.metodo ?? null, metodoTexto: f.metodo ? METODOS_PAGO[f.metodo] ?? f.metodo : null,
       cliente: (f.clientes ?? []).map((c) => c.nombre).filter(Boolean).join(", ") || null,
+      // 5.88: ¿ya se emitió? y con qué número
+      estado: f.estado === "facturado" ? "emitida" : "pendiente", numeroFactura: f.emision?.numero ?? null,
     })),
     facturasTruncadas: facturas.length >= MAX_FACTURAS,
   };

@@ -60,14 +60,17 @@ export const TIPO_PEDIDO = Object.freeze({
   editables: ["abierto"],
 });
 
-// RECIBO (tipo `recibo`, 5.32): el comprobante NO fiscal de un cobro (entero o por ítems). Se crea al cobrar y no
-// cambia: un solo estado, sin transiciones ni edición. Su número es el código (RC-0000001), consecutivo por empresa.
+// RECIBO (tipo `recibo`, 5.32): el comprobante NO fiscal de un cobro (entero o por ítems). Se crea al cobrar y su contenido
+// no cambia. Su número es el código (RC-0000001), consecutivo por empresa.
+// Factura pedida (5.88): `emitido` es el estado normal; si el cliente pidió factura y ya se emitió fuera del sistema, se
+// marca `facturado` (con el número de la factura) y se puede deshacer con motivo. Solo `facturas.js` toca esa marca.
+export const MOTIVOS_FACTURA = Object.freeze(["error_de_marca", "factura_anulada", "otro"]);
 export const TIPO_RECIBO = Object.freeze({
   tipo: "recibo",
   prefijo: "RC",
   estadoInicial: "emitido",
-  transiciones: {},
-  permisos: {},
-  motivos: {},
-  editables: [],
+  transiciones: { emitido: ["facturado"], facturado: ["emitido"] },
+  permisos: { facturado: "documento:editar", emitido: "documento:editar" },
+  motivos: { emitido: MOTIVOS_FACTURA },
+  editables: ["emitido", "facturado"],
 });

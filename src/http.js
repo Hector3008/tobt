@@ -56,6 +56,9 @@ function responder(res, e, next) {
  *
  * Reportes (5.35)
  *   GET  /reportes/ventas (?desde=AAAA-MM-DD &hasta= &dias=N &gran=dia|semana|mes)   reporte:leer   ventas cobradas (ítems pagados) resumidas
+ *   GET  /facturas (?estado=pendientes|emitidas|todas &desde= &hasta= &dias=N)          documento:leer   recibos con factura pedida (5.88); sin fechas, todos
+ *   POST /facturas/:code/emitida { numero? }                                            documento:editar marca la factura como emitida (el número es obligatorio si la empresa lo pide)
+ *   POST /facturas/:code/deshacer { motivo: { codigo: error_de_marca|factura_anulada|otro, detalle? } }   documento:editar
  *   GET  /reportes/inventario (?desde= &hasta= &dias=N)                              reporte:leer + kardex:leer   consumo de insumos, costo de ventas y margen por plato (5.78)
  *        por tiempo, categoría, mesero (quien cobra), cliente, plato, hora y canal, más propinas y formas de pago (recibos)
  *
@@ -71,7 +74,7 @@ function responder(res, e, next) {
  */
 export function montarRutas(router, core, servicio) {
   const { autenticar, requierePermiso, eventos, auth } = core;
-  const { pedidos, items, vales, recibos, reportes, reportesInventario, recetas } = servicio;
+  const { pedidos, items, vales, recibos, reportes, reportesInventario, recetas, facturas } = servicio;
 
   const envolver = (escribe, fn) => async (req, res, next) => {
     try {
@@ -208,6 +211,29 @@ export function montarRutas(router, core, servicio) {
         res.status(200).json(await reportesInventario.inventario({ ...base(req), desde, hasta, dias }));
       }),
     );
+
+  // Facturas pedidas (5.88)
+  if (facturas) {
+    router.get(
+      "/facturas",
+      ...con("documento:leer", "administracion"),
+      envolver(false, async (req, res) => {
+        res.setHeader("Cache-Control", "no-store");
+        const { estado, desde, hasta, dias } = req.query ?? {};
+        res.status(200).json(await facturas.listar({ ...base(req), ...(estado ? { estado } : {}), desde, hasta, dias }));
+      }),
+    );
+    router.post(
+      "/facturas/:code/emitida",
+      ...editar("administracion"),
+      envolver(true, async (req, res) => res.status(200).json(await facturas.marcarEmitida({ ...base(req), code: req.params.code, numero: req.body?.numero, esperaVersion: req.body?.esperaVersion }))),
+    );
+    router.post(
+      "/facturas/:code/deshacer",
+      ...editar("administracion"),
+      envolver(true, async (req, res) => res.status(200).json(await facturas.deshacer({ ...base(req), code: req.params.code, motivo: req.body?.motivo, esperaVersion: req.body?.esperaVersion }))),
+    );
+  }
 
   // ---------- ítems (ítems) ----------
   router.get(

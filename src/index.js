@@ -6,6 +6,7 @@ import { conEmpresa, permite } from "core";
 import { crearServicio } from "./servicio.js";
 import { crearReportes } from "./reportes.js";
 import { crearReportesInventario } from "./reportes-inventario.js";
+import { crearFacturas } from "./facturas.js";
 import { montarRutas } from "./http.js";
 import { crearPublico, CAMPOS_PLATO } from "./publico.js";
 import { montarRutasPublicas } from "./publico-http.js";
@@ -20,6 +21,7 @@ export { ErrorPedido } from "./errores.js";
 export { crearServicio } from "./servicio.js";
 export { crearReportes } from "./reportes.js";
 export { crearReportesInventario } from "./reportes-inventario.js";
+export { crearFacturas } from "./facturas.js";
 
 const DIST_POR_DEFECTO = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "client", "dist");
 
@@ -68,6 +70,11 @@ export function createRouter({ core, dist = DIST_POR_DEFECTO } = {}) {
   // Reportes del inventario (5.78): consumo de insumos, costo de ventas y margen por plato. Pide un núcleo con kardex (5.75).
   servicio.reportesInventario = core.modelos?.Documento && core.modelos?.MovimientoKardex && core.modelos?.Insumo
     ? crearReportesInventario({ conEmpresa, permite, modelos: core.modelos })
+    : null;
+
+  // Facturas pedidas (5.88): lista de recibos con factura pedida y su marca de «emitida». Pide documentos y Documento.
+  servicio.facturas = core.modelos?.Documento
+    ? crearFacturas({ conEmpresa, permite, documentos: core.documentos, modelos: core.modelos })
     : null;
 
   // Reseñas de platos (5.62): el núcleo pregunta aquí si un cliente pagó el plato. Un núcleo anterior no las trae.
